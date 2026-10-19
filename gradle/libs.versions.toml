@@ -1,0 +1,17 @@
+[versions]
+kotlin = "2.4.21"
+spring-boot = "4.1.1"
+aeron = "1.53.3"
+vertx = "5.2.1"
+
+[libraries]
+aeron-cluster = { module = "io.aeron:aeron-cluster", version.ref = "aeron" }
+spring-boot-bom = { module = "org.springframework.boot:spring-boot-dependencies", version.ref = "spring-boot" }
+spring-boot-starter = { module = "org.springframework.boot:spring-boot-starter" }
+vertx-web = { module = "io.vertx:vertx-web", version.ref = "vertx" }
+kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref = "kotlin" }
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-spring = { id = "org.jetbrains.kotlin.plugin.spring", version.ref = "kotlin" }
+spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }

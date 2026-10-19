@@ -1,31 +1,116 @@
 # Cluster State Machine
 
-A learning project focused on building a small replicated counter with Aeron
-Cluster. The initial behavior is deliberately limited to increment and
-decrement commands and publishing the resulting count.
+A learning project with an Aeron Cluster counter, a Kotlin Spring Boot trading
+gateway using Vert.x WebSockets, and a React client. The cluster accepts
+increment and decrement commands and returns the resulting count.
 
-The goal is to understand ordered command processing, deterministic state
-transitions, snapshots, replay, and cluster recovery. Banking, trading, gateways,
-web UIs, and deployment are outside the current scope.
+The current cluster is a **single-node development cluster**. It demonstrates
+the Aeron Cluster service and client path, but does not demonstrate multi-node
+replication or failover yet.
 
-## Language and build
+## Modules
 
-The clustered service will be written in Java, matching Aeron Cluster's
-clustered-service API and official examples. The JDK and build-tool versions will
-be pinned when the initial application scaffold is added.
+| Module | Role |
+| --- | --- |
+| `counter-protocol` | Shared Kotlin command and response codes used by both backend apps. |
+| `cluster` | Spring Boot process hosting Aeron Media Driver, Archive, Consensus Module, and the counter service. |
+| `trading-gateway` | Spring Boot process with an Aeron Cluster client and Vert.x WebSocket endpoint. |
+| `frontend` | React counter UI that sends increment/decrement commands and displays count updates. |
 
-## Current status
+## Message flow
 
-The repository currently contains project guidance and scope documentation. The
-counter service has not been implemented yet.
+```text
+React browser
+    │ JSON over WebSocket
+    ▼
+Vert.x trading gateway
+    │ Aeron Cluster ingress command
+    ▼
+Aeron Cluster counter service
+    │ count response over cluster egress
+    ▼
+Vert.x broadcasts the count to connected browsers
+```
 
-## Build and run
+The WebSocket accepts JSON commands:
 
-Build and run instructions will be added with the first Java implementation.
-Keep the Java, Gradle, and Aeron versions pinned and use documentation matching
-those versions.
+```json
+{"type":"increment"}
+{"type":"decrement"}
+{"type":"get"}
+```
 
-## Learning resources
+Count responses have this shape:
+
+```json
+{"type":"count","count":1,"status":"ok"}
+```
+
+The cluster command payload is one byte: `0` for get, `1` for increment, and
+`2` for decrement. The egress response is one status byte followed by the
+64-bit count in little-endian byte order. Invalid commands and counter overflow
+leave the count unchanged.
+
+## Requirements
+
+- JDK 21 or newer
+- Gradle wrapper (included)
+- Node.js 20.19 or newer and pnpm 11 for the frontend
+
+Dependency versions are pinned in `gradle/libs.versions.toml` and
+`frontend/package.json`.
+
+## Run locally
+
+Start each process in its own terminal from the repository root.
+
+1. Start the single-node cluster:
+
+   ```sh
+   ./gradlew :cluster:bootRun
+   ```
+
+2. Start the gateway:
+
+   ```sh
+   ./gradlew :trading-gateway:bootRun
+   ```
+
+3. Install and start the React UI:
+
+   ```sh
+   cd frontend
+   pnpm install
+   pnpm dev
+   ```
+
+Open the local address printed by Vite. The gateway listens on
+`ws://127.0.0.1:8081/ws`; the cluster ingress port is `9002`.
+
+## Build
+
+```sh
+./gradlew build
+cd frontend
+pnpm build
+```
+
+## Data and reset
+
+The cluster stores its Aeron and archive data under `cluster-data/`; the gateway
+uses `gateway-data/` for its local Media Driver. These directories are ignored
+by Git. Stop the processes before deleting local data. Removing `cluster-data/`
+resets the counter's persisted cluster state.
+
+## Next learning steps
+
+1. Understand the command and response encoding and the counter's snapshot.
+2. Exercise restart and snapshot/replay behavior.
+3. Evolve the cluster configuration to three members and verify replication
+   and leader failover.
+
+## References
 
 - [Aeron Cluster tutorial](https://github.com/aeron-io/aeron/wiki/Cluster-Tutorial)
-- [Aeron Cluster module](https://github.com/aeron-io/aeron/tree/master/aeron-cluster)
+- [Aeron Cluster component model](https://github.com/aeron-io/aeron/wiki/Cluster-Component-Model)
+- [Vert.x Web documentation](https://vertx.io/docs/vertx-web/java/)

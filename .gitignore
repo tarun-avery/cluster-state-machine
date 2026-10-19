@@ -3,13 +3,25 @@
 build/
 **/build/
 
+# Frontend dependencies and bundles
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/pnpm-debug.log
+
+# Local configuration and logs
+.env
+.env.*
+!.env.example
+*.log
+
 # IntelliJ IDEA
 .idea/
 *.iml
 
 # Local runtime data
 /cluster-data/
-/aeron-data/
+/gateway-data/
 
 # macOS
 .DS_Store

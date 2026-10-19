@@ -2,62 +2,50 @@
 
 ## Goal and scope
 
-This project is for learning Aeron Cluster by building a small, correct replicated
-state machine. The first application is a counter that accepts increment and
-decrement commands and publishes the resulting count. Keep the work focused on
-the cluster and state machine. Do not add banking, trading, gateway, WebSocket,
-frontend, or deployment features unless the user asks.
+Build a small counter state machine with Aeron Cluster, a Kotlin/Spring Boot
+cluster application, a Kotlin/Spring Boot trading gateway that connects as an
+Aeron Cluster client and exposes Vert.x WebSockets, and a React browser client.
+The counter supports increment and decrement commands. Keep domain behavior to
+the counter; do not add banking or trading logic.
 
 ## Before changing code
 
-- Read this file, the root README, and the relevant source and tests first.
+- Read this file, the root README, and the relevant source first.
 - Check the working tree and preserve existing user changes.
-- Use documentation and examples matching the Aeron version pinned by this
-  project. Do not assume APIs from a different version.
-- Keep the change small and explain any design choice that affects learning,
-  state semantics, persistence, or recovery.
+- Use APIs and documentation matching the versions pinned in the build.
+- Keep changes focused and explain design decisions that affect the learning
+  goals or state semantics.
 
-## State machine correctness
+## Correctness and architecture
 
-- Keep command application deterministic: a given prior state and ordered
-  command must produce the same next state and result on every cluster member.
+- Keep the clustered service deterministic: the same prior state and ordered
+  command must produce the same next state and result on every member.
 - Do not read wall-clock time, generate random values, or perform external I/O
-  while applying a command. Use cluster callbacks and APIs according to Aeron's
-  documented lifecycle rules.
-- Make state changes and client-visible results explicit. Reject invalid
-  commands without partially changing state.
-- Treat snapshots and replay as part of the state-machine contract. When state
-  shape or message encoding changes, consider compatibility and recovery from
-  existing snapshots and logs.
-- Keep Aeron transport, command encoding, state transition logic, and process
-  startup separable where that makes behavior easier to understand and verify.
-
-## Implementation practices
-
-- Implement the clustered service in Java. Do not add a second language or
-  framework without asking.
-- Prefer small, direct abstractions over frameworks or speculative features.
-- Keep dependencies and versions explicit and reproducible; use the Gradle
-  wrapper if this is a Gradle project.
-- Never commit credentials, local IDE state, generated build output, or runtime
-  cluster data.
-- Update README instructions when setup, commands, behavior, or project scope
-  changes.
-
-## Commits
-
-- Do not create commits or push changes unless the user asks.
-- When asked to commit, use a short imperative subject describing the change,
-  such as `Add deterministic counter state`. Avoid bundling unrelated changes.
-- Before committing, review the staged diff and ensure generated files,
-  credentials, and local runtime data are excluded.
+  while applying a command. Follow Aeron's documented callback lifecycle.
+- Keep command and result encoding explicit. Preserve compatibility or explain
+  migration implications when changing messages, state, or snapshots.
+- Keep Aeron state transitions in the cluster service. The gateway transports
+  commands and publishes egress results; the React app is a client only.
+- Keep the gateway's Aeron client access on one owning thread and bridge results
+  to Vert.x safely. Do not block Vert.x event-loop threads.
+- Keep versions pinned and reproducible. Use the Gradle wrapper and the
+  frontend package lockfile.
+- Never commit credentials, local IDE state, build output, or runtime cluster
+  data.
+- Update README setup, run, protocol, and status details when behavior changes.
 
 ## Verification and reporting
 
-- Use the narrowest relevant checks first, followed by the project build when
-  appropriate. Do not claim a check passed unless it was run successfully.
-- Distinguish unit-level state transition evidence from actual cluster,
-  replication, snapshot, replay, and failover verification.
-- Keep verification local and reproducible. Do not launch a multi-node cluster
-  or perform long-running benchmarks unless the task calls for them.
-- Summarize behavior changed, checks run, and any known verification gaps.
+- Prefer focused compilation and build checks before wider checks.
+- Distinguish local counter behavior from actual multi-node replication,
+  snapshots, replay, and failover. Do not claim the latter were verified unless
+  they were exercised.
+- Do not start a multi-node cluster or long-running benchmark unless requested.
+- Report what changed, checks run, and verification gaps.
+
+## Commits
+
+- Do not create commits or push unless the user asks.
+- When asked, use a short imperative commit subject and keep each commit focused.
+- Review the staged diff and exclude credentials, generated files, and runtime
+  data before committing.
