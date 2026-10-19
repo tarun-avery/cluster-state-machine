@@ -32,6 +32,9 @@ the counter; do not add banking or trading logic.
   frontend package lockfile.
 - Never commit credentials, local IDE state, build output, or runtime cluster
   data.
+- Use a neutral project namespace for source packages and build coordinates.
+  Do not put the user's name, home-directory path, or personal identifiers in
+  source paths or package names unless the user explicitly requests it.
 - Update README setup, run, protocol, and status details when behavior changes.
 
 ## Verification and reporting
@@ -45,7 +48,10 @@ the counter; do not add banking or trading logic.
 
 ## Commits
 
-- Do not create commits or push unless the user asks.
-- When asked, use a short imperative commit subject and keep each commit focused.
-- Review the staged diff and exclude credentials, generated files, and runtime
-  data before committing.
+- Never create a commit or push until the user has reviewed the current changes
+  and explicitly approved the specific commit or push. This applies even if the
+  user previously authorized a different commit or push.
+- After making changes, leave them uncommitted and present the diff for review.
+- Once the user approves, use a short imperative commit subject and keep each
+  commit focused. Review the staged diff and exclude credentials, generated
+  files, and runtime data before committing.

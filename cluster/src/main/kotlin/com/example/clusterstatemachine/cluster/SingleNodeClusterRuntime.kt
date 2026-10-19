@@ -1,4 +1,4 @@
-package dev.tarunavery.clusterservice
+package com.example.clusterstatemachine.cluster
 
 import io.aeron.archive.Archive
 import io.aeron.archive.client.AeronArchive
@@ -80,11 +80,19 @@ class SingleNodeClusterRuntime(
     archiveContext,
     consensusContext,
   )
-  private val serviceContainer = ClusteredServiceContainer.launch(serviceContext)
+  private val serviceContainer = try {
+    ClusteredServiceContainer.launch(serviceContext)
+  } catch (exception: Throwable) {
+    clusteredMediaDriver.close()
+    throw exception
+  }
 
   override fun close() {
-    serviceContainer.close()
-    clusteredMediaDriver.close()
+    try {
+      serviceContainer.close()
+    } finally {
+      clusteredMediaDriver.close()
+    }
   }
 
   private companion object {

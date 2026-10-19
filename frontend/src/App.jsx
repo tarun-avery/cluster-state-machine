@@ -9,30 +9,53 @@ export default function App() {
   const socketRef = useRef(null);
 
   useEffect(() => {
-    const socket = new WebSocket(socketUrl);
-    socketRef.current = socket;
+    let active = true;
+    let retryTimer;
+    let socket;
 
-    socket.addEventListener("open", () => {
-      setStatus("connected");
-      socket.send(JSON.stringify({ type: "get" }));
-    });
-    socket.addEventListener("close", () => setStatus("disconnected"));
-    socket.addEventListener("error", () => setStatus("connection error"));
-    socket.addEventListener("message", (event) => {
-      try {
-        const message = JSON.parse(event.data);
-        if (message.type === "count") {
-          setCount(message.count);
-          setError(message.status === "ok" ? "" : message.status);
-        } else if (message.type === "error") {
-          setError(message.message);
+    function connect() {
+      setStatus("connecting");
+      socket = new WebSocket(socketUrl);
+      socketRef.current = socket;
+
+      socket.addEventListener("open", () => {
+        if (!active) return;
+        setCount(null);
+        setError("");
+        setStatus("connected");
+      });
+      socket.addEventListener("close", () => {
+        if (!active) return;
+        setStatus("reconnecting");
+        retryTimer = setTimeout(connect, 1000);
+      });
+      socket.addEventListener("error", () => {
+        if (active) setError("Cannot connect to the gateway");
+        socket.close();
+      });
+      socket.addEventListener("message", (event) => {
+        if (!active) return;
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === "count") {
+            if (typeof message.count !== "string" || !/^-?\d+$/.test(message.count)) {
+              throw new Error("Invalid counter value");
+            }
+            setCount(message.count);
+            setError(message.status === "ok" ? "" : message.status);
+          } else if (message.type === "error") {
+            setError(message.message);
+          }
+        } catch {
+          setError("Received an invalid message from the gateway");
         }
-      } catch {
-        setError("Received an invalid message from the gateway");
-      }
-    });
+      });
+    }
 
+    connect();
     return () => {
+      active = false;
+      clearTimeout(retryTimer);
       socket.close();
       socketRef.current = null;
     };
@@ -48,16 +71,16 @@ export default function App() {
   return (
     <main className="page">
       <section className="counter-card" aria-labelledby="title">
-        <div className="eyebrow">AERON CLUSTER · REPLICATED STATE</div>
+        <div className="eyebrow">AERON CLUSTER · SINGLE-NODE DEMO</div>
         <h1 id="title">Cluster counter</h1>
         <p className="intro">Commands are sequenced by Aeron Cluster and the updated count is sent back over WebSocket.</p>
 
         <div className="count" aria-live="polite">{count === null ? "—" : count}</div>
         <div className="controls">
-          <button type="button" onClick={() => send("decrement")} disabled={status !== "connected"} aria-label="Decrement count">
+          <button type="button" onClick={() => send("decrement")} disabled={status !== "connected" || count === null} aria-label="Decrement count">
             −1
           </button>
-          <button type="button" onClick={() => send("increment")} disabled={status !== "connected"} aria-label="Increment count">
+          <button type="button" onClick={() => send("increment")} disabled={status !== "connected" || count === null} aria-label="Increment count">
             +1
           </button>
         </div>

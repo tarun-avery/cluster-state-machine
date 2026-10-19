@@ -1,11 +1,11 @@
-package dev.tarunavery.tradinggateway
+package com.example.clusterstatemachine.cluster
 
 import org.springframework.boot.autoconfigure.SpringBootApplication
 import org.springframework.boot.runApplication
 
 @SpringBootApplication
-class TradingGatewayApplication
+class ClusterApplication
 
 fun main(args: Array<String>) {
-  runApplication<TradingGatewayApplication>(*args)
+  runApplication<ClusterApplication>(*args)
 }

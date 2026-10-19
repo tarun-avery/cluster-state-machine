@@ -17,4 +17,7 @@ dependencies {
   implementation(libs.kotlin.reflect)
   implementation(libs.aeron.cluster)
   implementation(libs.vertx.web)
+  testImplementation(kotlin("test-junit5"))
+  testImplementation("org.mockito:mockito-core")
+  testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

@@ -1,12 +1,12 @@
-package dev.tarunavery.tradinggateway
+package com.example.clusterstatemachine.gateway
 
 import io.aeron.cluster.client.AeronCluster
 import io.aeron.cluster.client.EgressListener
 import io.aeron.driver.MediaDriver
 import io.aeron.driver.ThreadingMode
-import dev.tarunavery.counterprotocol.CounterCommand
-import dev.tarunavery.counterprotocol.CounterMessage
-import dev.tarunavery.counterprotocol.CounterStatus
+import com.example.clusterstatemachine.protocol.CounterCommand
+import com.example.clusterstatemachine.protocol.CounterMessage
+import com.example.clusterstatemachine.protocol.CounterStatus
 import org.agrona.ExpandableArrayBuffer
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -27,6 +27,7 @@ class CounterClusterClient(
 ) : AutoCloseable {
   private val logger = LoggerFactory.getLogger(javaClass)
   private val running = AtomicBoolean(false)
+  private val connected = AtomicBoolean(false)
   private val commands = ArrayBlockingQueue<Byte>(COMMAND_QUEUE_CAPACITY)
   private val updateListeners = CopyOnWriteArraySet<(CounterMessage) -> Unit>()
   private val clientAeronDirectory = File(dataDir, "aeron-client").absolutePath
@@ -40,7 +41,14 @@ class CounterClusterClient(
     updateListeners.remove(listener)
   }
 
-  fun submit(command: CounterCommand): Boolean = commands.offer(command.code)
+  @Synchronized
+  fun submit(command: CounterCommand): Boolean = connected.get() && commands.offer(command.code)
+
+  @Synchronized
+  private fun disconnect() {
+    connected.set(false)
+    commands.clear()
+  }
 
   @jakarta.annotation.PostConstruct
   fun start() {
@@ -52,6 +60,7 @@ class CounterClusterClient(
 
   override fun close() {
     running.set(false)
+    disconnect()
     executor?.shutdownNow()
     executor?.awaitTermination(5, TimeUnit.SECONDS)
     executor = null
@@ -71,13 +80,16 @@ class CounterClusterClient(
         )
 
         val egressListener = EgressListener { _, _, buffer, offset, length, _ ->
-          if (length >= RESPONSE_LENGTH) {
+          if (length == RESPONSE_LENGTH) {
             val status = CounterStatus.fromCode(buffer.getByte(offset))
             val count = buffer.getLong(offset + 1, ByteOrder.LITTLE_ENDIAN)
             val result = CounterMessage(status, count)
-            updateListeners.forEach { listener -> listener(result) }
+            updateListeners.forEach { listener ->
+              runCatching { listener(result) }
+                .onFailure { logger.warn("Counter update listener failed", it) }
+            }
           } else {
-            logger.warn("Ignoring short counter response: {} bytes", length)
+            logger.warn("Ignoring invalid counter response: {} bytes", length)
           }
         }
 
@@ -85,22 +97,36 @@ class CounterClusterClient(
           AeronCluster.Context()
             .aeronDirectoryName(clientAeronDirectory)
             .ingressChannel("aeron:udp")
-            .ingressEndpoints(ingressEndpoint)
+            .ingressEndpoints("0=$ingressEndpoint")
+            .egressChannel("aeron:udp?endpoint=127.0.0.1:0")
             .egressListener(egressListener)
         )
         logger.info("Connected to Aeron Cluster at {}", ingressEndpoint)
 
+        commands.offer(CounterCommand.GET.code)
+        connected.set(true)
+        var lastKeepAlive = System.nanoTime()
         val commandBuffer = ExpandableArrayBuffer(COMMAND_LENGTH)
         val idleStrategy = org.agrona.concurrent.BackoffIdleStrategy()
         while (running.get() && !clusterClient.isClosed) {
+          val now = System.nanoTime()
+          if (now - lastKeepAlive >= KEEP_ALIVE_INTERVAL_NS && clusterClient.sendKeepAlive()) {
+            lastKeepAlive = now
+          }
           val command = commands.poll()
           if (command != null) {
             commandBuffer.putByte(0, command)
             var result = clusterClient.offer(commandBuffer, 0, COMMAND_LENGTH)
-            while (result < 0 && running.get()) {
+            val offerDeadline = System.nanoTime() + OFFER_TIMEOUT_NS
+            while (result < 0 && running.get() && !clusterClient.isClosed) {
+              check(System.nanoTime() < offerDeadline) { "Timed out offering counter command" }
               clusterClient.pollEgress()
+              val retryNow = System.nanoTime()
+              if (retryNow - lastKeepAlive >= KEEP_ALIVE_INTERVAL_NS && clusterClient.sendKeepAlive()) {
+                lastKeepAlive = retryNow
+              }
               idleStrategy.idle()
-              result = clusterClient.offer(commandBuffer, 0, COMMAND_LENGTH)
+              if (!clusterClient.isClosed) result = clusterClient.offer(commandBuffer, 0, COMMAND_LENGTH)
             }
           }
 
@@ -113,13 +139,27 @@ class CounterClusterClient(
       } catch (exception: Exception) {
         if (running.get()) logger.error("Aeron Cluster client disconnected; reconnecting", exception)
       } finally {
-        clusterClient?.close()
-        mediaDriver?.close()
+        disconnect()
+        try {
+          clusterClient?.close()
+        } finally {
+          mediaDriver?.close()
+        }
+      }
+      if (running.get()) {
+        try {
+          TimeUnit.SECONDS.sleep(1)
+        } catch (_: InterruptedException) {
+          Thread.currentThread().interrupt()
+          return
+        }
       }
     }
   }
 
   companion object {
+    private val KEEP_ALIVE_INTERVAL_NS = TimeUnit.SECONDS.toNanos(1)
+    private val OFFER_TIMEOUT_NS = TimeUnit.SECONDS.toNanos(5)
     private const val COMMAND_LENGTH = 1
     private const val RESPONSE_LENGTH = 1 + Long.SIZE_BYTES
     private const val COMMAND_QUEUE_CAPACITY = 1024

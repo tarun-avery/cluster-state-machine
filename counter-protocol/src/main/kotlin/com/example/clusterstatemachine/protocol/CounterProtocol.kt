@@ -1,4 +1,4 @@
-package dev.tarunavery.counterprotocol
+package com.example.clusterstatemachine.protocol
 
 enum class CounterCommand(val code: Byte) {
   GET(0),

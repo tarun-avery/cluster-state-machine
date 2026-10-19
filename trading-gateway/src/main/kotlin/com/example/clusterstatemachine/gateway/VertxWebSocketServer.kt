@@ -1,10 +1,10 @@
-package dev.tarunavery.tradinggateway
+package com.example.clusterstatemachine.gateway
 
 import io.vertx.core.Vertx
 import io.vertx.core.json.JsonObject
-import dev.tarunavery.counterprotocol.CounterCommand
-import dev.tarunavery.counterprotocol.CounterMessage
-import dev.tarunavery.counterprotocol.CounterStatus
+import com.example.clusterstatemachine.protocol.CounterCommand
+import com.example.clusterstatemachine.protocol.CounterMessage
+import com.example.clusterstatemachine.protocol.CounterStatus
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
@@ -17,15 +17,16 @@ class VertxWebSocketServer(
 ) : AutoCloseable {
   private val logger = LoggerFactory.getLogger(javaClass)
   private val vertx = Vertx.vertx()
+  private val updateContext = vertx.getOrCreateContext()
   private val sockets = CopyOnWriteArraySet<io.vertx.core.http.ServerWebSocket>()
   private val updateListener: (CounterMessage) -> Unit = { message ->
     val json = JsonObject()
       .put("type", "count")
-      .put("count", message.count)
+      .put("count", message.count.toString())
       .put("status", message.statusName())
       .encode()
 
-    vertx.runOnContext { _ ->
+    updateContext.runOnContext { _ ->
       sockets.filter { !it.isClosed }.forEach { it.writeTextMessage(json) }
     }
   }
@@ -44,18 +45,21 @@ class VertxWebSocketServer(
         socket.closeHandler { sockets.remove(socket) }
         socket.textMessageHandler { text -> handleMessage(socket, text) }
         if (!clusterClient.submit(CounterCommand.GET)) {
-          socket.writeTextMessage(errorMessage("Gateway is busy; try again"))
+          socket.writeTextMessage(errorMessage("Cluster unavailable or gateway busy; try again"))
         }
       }
       .listen(port)
-      .onSuccess { logger.info("Vert.x WebSocket listening on port {} at /ws", port) }
-      .onFailure { logger.error("Could not start Vert.x WebSocket server", it) }
+      .onFailure {
+        clusterClient.removeUpdateListener(updateListener)
+        vertx.close()
+      }
+      .toCompletionStage().toCompletableFuture().get(10, java.util.concurrent.TimeUnit.SECONDS)
+    logger.info("Vert.x WebSocket listening on port {} at /ws", port)
   }
 
   override fun close() {
     clusterClient.removeUpdateListener(updateListener)
-    sockets.forEach { it.close() }
-    vertx.close()
+    vertx.close().toCompletionStage().toCompletableFuture().get(10, java.util.concurrent.TimeUnit.SECONDS)
   }
 
   private fun handleMessage(socket: io.vertx.core.http.ServerWebSocket, text: String) {
@@ -70,7 +74,7 @@ class VertxWebSocketServer(
     if (command == null) {
       socket.writeTextMessage(errorMessage("Expected type: get, increment, or decrement"))
     } else if (!clusterClient.submit(command)) {
-      socket.writeTextMessage(errorMessage("Gateway is busy; try again"))
+      socket.writeTextMessage(errorMessage("Cluster unavailable or gateway busy; try again"))
     }
   }
 

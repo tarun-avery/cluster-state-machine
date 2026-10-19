@@ -1,4 +1,4 @@
-package dev.tarunavery.clusterservice
+package com.example.clusterstatemachine.cluster
 
 import io.aeron.ExclusivePublication
 import io.aeron.Image
@@ -8,8 +8,8 @@ import io.aeron.cluster.service.Cluster
 import io.aeron.cluster.service.ClusteredService
 import io.aeron.logbuffer.FragmentHandler
 import io.aeron.logbuffer.Header
-import dev.tarunavery.counterprotocol.CounterCommand
-import dev.tarunavery.counterprotocol.CounterStatus
+import com.example.clusterstatemachine.protocol.CounterCommand
+import com.example.clusterstatemachine.protocol.CounterStatus
 import org.agrona.DirectBuffer
 import org.agrona.ExpandableArrayBuffer
 import org.agrona.MutableDirectBuffer

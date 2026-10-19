@@ -16,4 +16,7 @@ dependencies {
   implementation(libs.spring.boot.starter)
   implementation(libs.kotlin.reflect)
   implementation(libs.aeron.cluster)
+  testImplementation(kotlin("test-junit5"))
+  testImplementation("org.mockito:mockito-core")
+  testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }

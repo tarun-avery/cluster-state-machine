@@ -43,8 +43,13 @@ The WebSocket accepts JSON commands:
 Count responses have this shape:
 
 ```json
-{"type":"count","count":1,"status":"ok"}
+{"type":"count","count":"1","status":"ok"}
 ```
+
+`count` is a decimal string so the browser preserves the full signed 64-bit
+range without JavaScript number rounding. This changes the original WebSocket
+count field from a JSON number to a string; other clients must update accordingly.
+The Aeron command, response, and snapshot formats are unchanged.
 
 The cluster command payload is one byte: `0` for get, `1` for increment, and
 `2` for decrement. The egress response is one status byte followed by the
@@ -62,7 +67,16 @@ Dependency versions are pinned in `gradle/libs.versions.toml` and
 
 ## Run locally
 
-Start each process in its own terminal from the repository root.
+Start each process in its own terminal from the repository root. The Gradle
+run tasks use the repository root as their working directory, so runtime data
+always goes into the root directories described below.
+
+The run tasks and executable JAR manifests supply the `java.base/jdk.internal.misc`
+export required by Aeron/Agrona. For an IDE run configuration, add this VM option:
+
+```text
+--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED
+```
 
 1. Start the single-node cluster:
 
@@ -94,6 +108,40 @@ Open the local address printed by Vite. The gateway listens on
 cd frontend
 pnpm build
 ```
+
+The backend build includes tests for ordered counter commands, invalid payloads,
+overflow, snapshot encoding/restoration, replay callbacks, WebSocket command
+handling, exact 64-bit JSON counts, disconnected submissions, and port conflicts.
+
+## Connection behavior
+
+- One gateway owns one Aeron Cluster session on a dedicated thread. It sends
+  keep-alives even when browsers are idle and fetches current state on reconnect.
+- The clustered service replies to the requesting gateway. That gateway broadcasts
+  the count entity to all of its connected browsers. Multiple independent gateway
+  instances do not currently subscribe to each other's updates.
+- Browsers reconnect automatically after a gateway restart and receive fresh state.
+  Buttons stay disabled until the first count arrives on a new connection.
+- Commands are rejected while the gateway knows it is disconnected or its bounded
+  queue is full. Commands already queued when a connection fails are discarded;
+  an in-flight command may have applied before its response was lost. There is no
+  automatic command replay or exactly-once retry guarantee. Fetch current state
+  before deciding whether to retry.
+- A blocked Aeron offer times out after five seconds and triggers reconnect.
+  Connection retries pause for one second. A WebSocket port conflict fails Spring
+  startup instead of leaving the app apparently running without its endpoint.
+- `VITE_GATEWAY_WS_URL` can override the browser endpoint at frontend startup/build.
+
+## Verification status
+
+A local single-node smoke check exercised initial state, increment/decrement,
+two-browser broadcasts, malformed WebSocket commands, and an idle session longer
+than the default cluster session timeout. The React controls and automatic browser
+reconnection after restarting the gateway were also exercised.
+
+Snapshot tests use Aeron callback doubles; a real snapshot/restart cycle,
+archive replay after process restart, multi-node replication, and leader failover
+have not been exercised.
 
 ## Data and reset
 
