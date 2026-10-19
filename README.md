@@ -8,20 +8,24 @@ The goal is to understand ordered command processing, deterministic state
 transitions, snapshots, replay, and cluster recovery. Banking, trading, gateways,
 web UIs, and deployment are outside the current scope.
 
-## Language choice
+## Language and build
 
-Aeron Cluster's clustered-service API and official examples are Java-based.
-Java is the simplest starting point for following the Aeron Cluster tutorials
-directly. Kotlin/JVM is also a valid choice and can call Aeron's Java APIs; use it
-if keeping the original Kotlin direction is more important than matching the
-examples line by line. Aeron also has C, C++, and .NET clients for Aeron messaging,
-but those are not the normal implementation path for an Aeron Cluster service.
+The clustered service will be written in Java, matching Aeron Cluster's
+clustered-service API and official examples. The JDK and build-tool versions will
+be pinned when the initial application scaffold is added.
 
-**Current implementation language:** undecided; choose Java or Kotlin/JVM before
-adding application code.
+## Current status
 
-## Getting started
+The repository currently contains project guidance and scope documentation. The
+counter service has not been implemented yet.
 
-Setup and run instructions will be added once the language, JDK, and Aeron
-versions are selected. Keep versions pinned and use the official Aeron Cluster
-documentation for the selected version.
+## Build and run
+
+Build and run instructions will be added with the first Java implementation.
+Keep the Java, Gradle, and Aeron versions pinned and use documentation matching
+those versions.
+
+## Learning resources
+
+- [Aeron Cluster tutorial](https://github.com/aeron-io/aeron/wiki/Cluster-Tutorial)
+- [Aeron Cluster module](https://github.com/aeron-io/aeron/tree/master/aeron-cluster)

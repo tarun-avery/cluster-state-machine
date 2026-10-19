@@ -34,8 +34,8 @@ frontend, or deployment features unless the user asks.
 
 ## Implementation practices
 
-- Follow the language and build choice documented in the README. Do not add a
-  second implementation language or framework without asking.
+- Implement the clustered service in Java. Do not add a second language or
+  framework without asking.
 - Prefer small, direct abstractions over frameworks or speculative features.
 - Keep dependencies and versions explicit and reproducible; use the Gradle
   wrapper if this is a Gradle project.
@@ -43,6 +43,14 @@ frontend, or deployment features unless the user asks.
   cluster data.
 - Update README instructions when setup, commands, behavior, or project scope
   changes.
+
+## Commits
+
+- Do not create commits or push changes unless the user asks.
+- When asked to commit, use a short imperative subject describing the change,
+  such as `Add deterministic counter state`. Avoid bundling unrelated changes.
+- Before committing, review the staged diff and ensure generated files,
+  credentials, and local runtime data are excluded.
 
 ## Verification and reporting
 
