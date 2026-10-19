@@ -1,0 +1,15 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# IntelliJ IDEA
+.idea/
+*.iml
+
+# Local runtime data
+/cluster-data/
+/aeron-data/
+
+# macOS
+.DS_Store
