@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
-const socketUrl = import.meta.env.VITE_GATEWAY_WS_URL ?? "ws://127.0.0.1:8081/ws";
+const socketUrl =
+  import.meta.env.VITE_GATEWAY_WS_URL ?? "ws://127.0.0.1:8081/ws";
 
 export default function App() {
   const [count, setCount] = useState(null);
@@ -38,7 +39,10 @@ export default function App() {
         try {
           const message = JSON.parse(event.data);
           if (message.type === "count") {
-            if (typeof message.count !== "string" || !/^-?\d+$/.test(message.count)) {
+            if (
+              typeof message.count !== "string" ||
+              !/^-?\d+$/.test(message.count)
+            ) {
               throw new Error("Invalid counter value");
             }
             setCount(message.count);
@@ -73,20 +77,42 @@ export default function App() {
       <section className="counter-card" aria-labelledby="title">
         <div className="eyebrow">AERON CLUSTER · SINGLE-NODE DEMO</div>
         <h1 id="title">Cluster counter</h1>
-        <p className="intro">Commands are sequenced by Aeron Cluster and the updated count is sent back over WebSocket.</p>
+        <p className="intro">
+          Commands are sequenced by Aeron Cluster and the updated count is sent
+          back over WebSocket.
+        </p>
 
-        <div className="count" aria-live="polite">{count === null ? "—" : count}</div>
+        <div className="count" aria-live="polite">
+          {count === null ? "—" : count}
+        </div>
         <div className="controls">
-          <button type="button" onClick={() => send("decrement")} disabled={status !== "connected" || count === null} aria-label="Decrement count">
+          <button
+            type="button"
+            onClick={() => send("decrement")}
+            disabled={status !== "connected" || count === null}
+            aria-label="Decrement count"
+          >
             −1
           </button>
-          <button type="button" onClick={() => send("increment")} disabled={status !== "connected" || count === null} aria-label="Increment count">
+          <button
+            type="button"
+            onClick={() => send("increment")}
+            disabled={status !== "connected" || count === null}
+            aria-label="Increment count"
+          >
             +1
           </button>
         </div>
 
-        <div className="connection"><span className={`dot ${status === "connected" ? "online" : ""}`} />{status}</div>
-        {error && <p className="error" role="status">{error}</p>}
+        <div className="connection">
+          <span className={`dot ${status === "connected" ? "online" : ""}`} />
+          {status}
+        </div>
+        {error && (
+          <p className="error" role="status">
+            {error}
+          </p>
+        )}
       </section>
     </main>
   );

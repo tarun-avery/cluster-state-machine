@@ -3,6 +3,8 @@ kotlin = "2.4.21"
 spring-boot = "4.1.1"
 aeron = "1.53.3"
 vertx = "5.2.1"
+ktlintGradle = "14.2.0"
+ktlintEngine = "1.8.0"
 
 [libraries]
 aeron-cluster = { module = "io.aeron:aeron-cluster", version.ref = "aeron" }
@@ -15,3 +17,4 @@ kotlin-reflect = { module = "org.jetbrains.kotlin:kotlin-reflect", version.ref =
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-spring = { id = "org.jetbrains.kotlin.plugin.spring", version.ref = "kotlin" }
 spring-boot = { id = "org.springframework.boot", version.ref = "spring-boot" }
+ktlint = { id = "org.jlleitschuh.gradle.ktlint", version.ref = "ktlintGradle" }

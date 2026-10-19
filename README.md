@@ -113,6 +113,32 @@ The backend build includes tests for ordered counter commands, invalid payloads,
 overflow, snapshot encoding/restoration, replay callbacks, WebSocket command
 handling, exact 64-bit JSON counts, disconnected submissions, and port conflicts.
 
+## Formatting
+
+Kotlin and Gradle Kotlin scripts use the official Kotlin conventions (four
+spaces), enforced by ktlint. The React frontend uses Prettier defaults (two
+spaces). `.editorconfig` shares indentation and line-ending settings with editors.
+Formatter versions are pinned in the version catalog and frontend package lock.
+
+Apply formatting from the repository root:
+
+```sh
+./gradlew ktlintFormat
+pnpm --dir frontend format
+```
+
+Check formatting without changing files:
+
+```sh
+./gradlew ktlintCheck
+pnpm --dir frontend format:check
+```
+
+Backend `build` includes ktlint checks; run the frontend formatting check alongside
+`pnpm --dir frontend build`. In IntelliJ, keep EditorConfig support enabled and
+select **Editor → Code Style → Kotlin → Set from → Kotlin style guide**. Run the
+formatter commands above for the exact formatting used by the build.
+
 ## Connection behavior
 
 - One gateway owns one Aeron Cluster session on a dedicated thread. It sends

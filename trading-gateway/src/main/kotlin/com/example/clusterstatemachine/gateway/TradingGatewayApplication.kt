@@ -7,5 +7,5 @@ import org.springframework.boot.runApplication
 class TradingGatewayApplication
 
 fun main(args: Array<String>) {
-  runApplication<TradingGatewayApplication>(*args)
+    runApplication<TradingGatewayApplication>(*args)
 }

@@ -37,6 +37,16 @@ the counter; do not add banking or trading logic.
   source paths or package names unless the user explicitly requests it.
 - Update README setup, run, protocol, and status details when behavior changes.
 
+## Formatting
+
+- Follow the official Kotlin conventions with four-space indentation for Kotlin
+  and Gradle Kotlin scripts. Use ktlint with the `ktlint_official` style.
+- Use Prettier defaults with two-space indentation for frontend files.
+- Keep `.editorconfig`, formatter configuration, and pinned versions in the repo.
+- Run `./gradlew ktlintFormat` and `pnpm --dir frontend format` after edits.
+- Verify with `./gradlew ktlintCheck` and `pnpm --dir frontend format:check`.
+  Backend `build` also runs ktlint checks.
+
 ## Verification and reporting
 
 - Prefer focused compilation and build checks before wider checks.

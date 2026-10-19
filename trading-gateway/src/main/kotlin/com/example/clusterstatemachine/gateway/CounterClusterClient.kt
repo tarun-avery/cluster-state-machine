@@ -1,12 +1,12 @@
 package com.example.clusterstatemachine.gateway
 
+import com.example.clusterstatemachine.protocol.CounterCommand
+import com.example.clusterstatemachine.protocol.CounterMessage
+import com.example.clusterstatemachine.protocol.CounterStatus
 import io.aeron.cluster.client.AeronCluster
 import io.aeron.cluster.client.EgressListener
 import io.aeron.driver.MediaDriver
 import io.aeron.driver.ThreadingMode
-import com.example.clusterstatemachine.protocol.CounterCommand
-import com.example.clusterstatemachine.protocol.CounterMessage
-import com.example.clusterstatemachine.protocol.CounterStatus
 import org.agrona.ExpandableArrayBuffer
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -22,146 +22,153 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 @Component
 class CounterClusterClient(
-  @Value("\${aeron.cluster.ingress-endpoint:127.0.0.1:9002}") private val ingressEndpoint: String,
-  @Value("\${aeron.client.data-dir:./gateway-data}") dataDir: String,
+    @Value("\${aeron.cluster.ingress-endpoint:127.0.0.1:9002}") private val ingressEndpoint: String,
+    @Value("\${aeron.client.data-dir:./gateway-data}") dataDir: String,
 ) : AutoCloseable {
-  private val logger = LoggerFactory.getLogger(javaClass)
-  private val running = AtomicBoolean(false)
-  private val connected = AtomicBoolean(false)
-  private val commands = ArrayBlockingQueue<Byte>(COMMAND_QUEUE_CAPACITY)
-  private val updateListeners = CopyOnWriteArraySet<(CounterMessage) -> Unit>()
-  private val clientAeronDirectory = File(dataDir, "aeron-client").absolutePath
-  private var executor: ExecutorService? = null
+    private val logger = LoggerFactory.getLogger(javaClass)
+    private val running = AtomicBoolean(false)
+    private val connected = AtomicBoolean(false)
+    private val commands = ArrayBlockingQueue<Byte>(COMMAND_QUEUE_CAPACITY)
+    private val updateListeners = CopyOnWriteArraySet<(CounterMessage) -> Unit>()
+    private val clientAeronDirectory = File(dataDir, "aeron-client").absolutePath
+    private var executor: ExecutorService? = null
 
-  fun addUpdateListener(listener: (CounterMessage) -> Unit) {
-    updateListeners.add(listener)
-  }
-
-  fun removeUpdateListener(listener: (CounterMessage) -> Unit) {
-    updateListeners.remove(listener)
-  }
-
-  @Synchronized
-  fun submit(command: CounterCommand): Boolean = connected.get() && commands.offer(command.code)
-
-  @Synchronized
-  private fun disconnect() {
-    connected.set(false)
-    commands.clear()
-  }
-
-  @jakarta.annotation.PostConstruct
-  fun start() {
-    if (!running.compareAndSet(false, true)) return
-    executor = Executors.newSingleThreadExecutor { runnable ->
-      Thread(runnable, "aeron-cluster-client").apply { isDaemon = true }
-    }.also { it.submit(::runClientLoop) }
-  }
-
-  override fun close() {
-    running.set(false)
-    disconnect()
-    executor?.shutdownNow()
-    executor?.awaitTermination(5, TimeUnit.SECONDS)
-    executor = null
-  }
-
-  private fun runClientLoop() {
-    while (running.get()) {
-      var mediaDriver: MediaDriver? = null
-      var clusterClient: AeronCluster? = null
-      try {
-        mediaDriver = MediaDriver.launch(
-          MediaDriver.Context()
-            .aeronDirectoryName(clientAeronDirectory)
-            .threadingMode(ThreadingMode.SHARED)
-            .dirDeleteOnStart(true)
-            .dirDeleteOnShutdown(true)
-        )
-
-        val egressListener = EgressListener { _, _, buffer, offset, length, _ ->
-          if (length == RESPONSE_LENGTH) {
-            val status = CounterStatus.fromCode(buffer.getByte(offset))
-            val count = buffer.getLong(offset + 1, ByteOrder.LITTLE_ENDIAN)
-            val result = CounterMessage(status, count)
-            updateListeners.forEach { listener ->
-              runCatching { listener(result) }
-                .onFailure { logger.warn("Counter update listener failed", it) }
-            }
-          } else {
-            logger.warn("Ignoring invalid counter response: {} bytes", length)
-          }
-        }
-
-        clusterClient = AeronCluster.connect(
-          AeronCluster.Context()
-            .aeronDirectoryName(clientAeronDirectory)
-            .ingressChannel("aeron:udp")
-            .ingressEndpoints("0=$ingressEndpoint")
-            .egressChannel("aeron:udp?endpoint=127.0.0.1:0")
-            .egressListener(egressListener)
-        )
-        logger.info("Connected to Aeron Cluster at {}", ingressEndpoint)
-
-        commands.offer(CounterCommand.GET.code)
-        connected.set(true)
-        var lastKeepAlive = System.nanoTime()
-        val commandBuffer = ExpandableArrayBuffer(COMMAND_LENGTH)
-        val idleStrategy = org.agrona.concurrent.BackoffIdleStrategy()
-        while (running.get() && !clusterClient.isClosed) {
-          val now = System.nanoTime()
-          if (now - lastKeepAlive >= KEEP_ALIVE_INTERVAL_NS && clusterClient.sendKeepAlive()) {
-            lastKeepAlive = now
-          }
-          val command = commands.poll()
-          if (command != null) {
-            commandBuffer.putByte(0, command)
-            var result = clusterClient.offer(commandBuffer, 0, COMMAND_LENGTH)
-            val offerDeadline = System.nanoTime() + OFFER_TIMEOUT_NS
-            while (result < 0 && running.get() && !clusterClient.isClosed) {
-              check(System.nanoTime() < offerDeadline) { "Timed out offering counter command" }
-              clusterClient.pollEgress()
-              val retryNow = System.nanoTime()
-              if (retryNow - lastKeepAlive >= KEEP_ALIVE_INTERVAL_NS && clusterClient.sendKeepAlive()) {
-                lastKeepAlive = retryNow
-              }
-              idleStrategy.idle()
-              if (!clusterClient.isClosed) result = clusterClient.offer(commandBuffer, 0, COMMAND_LENGTH)
-            }
-          }
-
-          if (clusterClient.pollEgress() == 0 && command == null) {
-            idleStrategy.idle()
-          } else {
-            idleStrategy.reset()
-          }
-        }
-      } catch (exception: Exception) {
-        if (running.get()) logger.error("Aeron Cluster client disconnected; reconnecting", exception)
-      } finally {
-        disconnect()
-        try {
-          clusterClient?.close()
-        } finally {
-          mediaDriver?.close()
-        }
-      }
-      if (running.get()) {
-        try {
-          TimeUnit.SECONDS.sleep(1)
-        } catch (_: InterruptedException) {
-          Thread.currentThread().interrupt()
-          return
-        }
-      }
+    fun addUpdateListener(listener: (CounterMessage) -> Unit) {
+        updateListeners.add(listener)
     }
-  }
 
-  companion object {
-    private val KEEP_ALIVE_INTERVAL_NS = TimeUnit.SECONDS.toNanos(1)
-    private val OFFER_TIMEOUT_NS = TimeUnit.SECONDS.toNanos(5)
-    private const val COMMAND_LENGTH = 1
-    private const val RESPONSE_LENGTH = 1 + Long.SIZE_BYTES
-    private const val COMMAND_QUEUE_CAPACITY = 1024
-  }
+    fun removeUpdateListener(listener: (CounterMessage) -> Unit) {
+        updateListeners.remove(listener)
+    }
+
+    @Synchronized
+    fun submit(command: CounterCommand): Boolean = connected.get() && commands.offer(command.code)
+
+    @Synchronized
+    private fun disconnect() {
+        connected.set(false)
+        commands.clear()
+    }
+
+    @jakarta.annotation.PostConstruct
+    fun start() {
+        if (!running.compareAndSet(false, true)) return
+        executor =
+            Executors
+                .newSingleThreadExecutor { runnable ->
+                    Thread(runnable, "aeron-cluster-client").apply { isDaemon = true }
+                }.also { it.submit(::runClientLoop) }
+    }
+
+    override fun close() {
+        running.set(false)
+        disconnect()
+        executor?.shutdownNow()
+        executor?.awaitTermination(5, TimeUnit.SECONDS)
+        executor = null
+    }
+
+    private fun runClientLoop() {
+        while (running.get()) {
+            var mediaDriver: MediaDriver? = null
+            var clusterClient: AeronCluster? = null
+            try {
+                mediaDriver =
+                    MediaDriver.launch(
+                        MediaDriver
+                            .Context()
+                            .aeronDirectoryName(clientAeronDirectory)
+                            .threadingMode(ThreadingMode.SHARED)
+                            .dirDeleteOnStart(true)
+                            .dirDeleteOnShutdown(true),
+                    )
+
+                val egressListener =
+                    EgressListener { _, _, buffer, offset, length, _ ->
+                        if (length == RESPONSE_LENGTH) {
+                            val status = CounterStatus.fromCode(buffer.getByte(offset))
+                            val count = buffer.getLong(offset + 1, ByteOrder.LITTLE_ENDIAN)
+                            val result = CounterMessage(status, count)
+                            updateListeners.forEach { listener ->
+                                runCatching { listener(result) }
+                                    .onFailure { logger.warn("Counter update listener failed", it) }
+                            }
+                        } else {
+                            logger.warn("Ignoring invalid counter response: {} bytes", length)
+                        }
+                    }
+
+                clusterClient =
+                    AeronCluster.connect(
+                        AeronCluster
+                            .Context()
+                            .aeronDirectoryName(clientAeronDirectory)
+                            .ingressChannel("aeron:udp")
+                            .ingressEndpoints("0=$ingressEndpoint")
+                            .egressChannel("aeron:udp?endpoint=127.0.0.1:0")
+                            .egressListener(egressListener),
+                    )
+                logger.info("Connected to Aeron Cluster at {}", ingressEndpoint)
+
+                commands.offer(CounterCommand.GET.code)
+                connected.set(true)
+                var lastKeepAlive = System.nanoTime()
+                val commandBuffer = ExpandableArrayBuffer(COMMAND_LENGTH)
+                val idleStrategy = org.agrona.concurrent.BackoffIdleStrategy()
+                while (running.get() && !clusterClient.isClosed) {
+                    val now = System.nanoTime()
+                    if (now - lastKeepAlive >= KEEP_ALIVE_INTERVAL_NS && clusterClient.sendKeepAlive()) {
+                        lastKeepAlive = now
+                    }
+                    val command = commands.poll()
+                    if (command != null) {
+                        commandBuffer.putByte(0, command)
+                        var result = clusterClient.offer(commandBuffer, 0, COMMAND_LENGTH)
+                        val offerDeadline = System.nanoTime() + OFFER_TIMEOUT_NS
+                        while (result < 0 && running.get() && !clusterClient.isClosed) {
+                            check(System.nanoTime() < offerDeadline) { "Timed out offering counter command" }
+                            clusterClient.pollEgress()
+                            val retryNow = System.nanoTime()
+                            if (retryNow - lastKeepAlive >= KEEP_ALIVE_INTERVAL_NS && clusterClient.sendKeepAlive()) {
+                                lastKeepAlive = retryNow
+                            }
+                            idleStrategy.idle()
+                            if (!clusterClient.isClosed) result = clusterClient.offer(commandBuffer, 0, COMMAND_LENGTH)
+                        }
+                    }
+
+                    if (clusterClient.pollEgress() == 0 && command == null) {
+                        idleStrategy.idle()
+                    } else {
+                        idleStrategy.reset()
+                    }
+                }
+            } catch (exception: Exception) {
+                if (running.get()) logger.error("Aeron Cluster client disconnected; reconnecting", exception)
+            } finally {
+                disconnect()
+                try {
+                    clusterClient?.close()
+                } finally {
+                    mediaDriver?.close()
+                }
+            }
+            if (running.get()) {
+                try {
+                    TimeUnit.SECONDS.sleep(1)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
+                    return
+                }
+            }
+        }
+    }
+
+    companion object {
+        private val KEEP_ALIVE_INTERVAL_NS = TimeUnit.SECONDS.toNanos(1)
+        private val OFFER_TIMEOUT_NS = TimeUnit.SECONDS.toNanos(5)
+        private const val COMMAND_LENGTH = 1
+        private const val RESPONSE_LENGTH = 1 + Long.SIZE_BYTES
+        private const val COMMAND_QUEUE_CAPACITY = 1024
+    }
 }

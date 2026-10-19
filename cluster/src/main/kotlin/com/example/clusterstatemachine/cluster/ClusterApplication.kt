@@ -7,5 +7,5 @@ import org.springframework.boot.runApplication
 class ClusterApplication
 
 fun main(args: Array<String>) {
-  runApplication<ClusterApplication>(*args)
+    runApplication<ClusterApplication>(*args)
 }
