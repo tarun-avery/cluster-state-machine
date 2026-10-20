@@ -16,6 +16,14 @@ the counter; do not add banking or trading logic.
 - Keep changes focused and explain design decisions that affect the learning
   goals or state semantics.
 
+## Repository layout
+
+- Kotlin modules live in `backend/cluster`, `backend/counter-protocol`, and
+  `backend/trading-gateway`. React lives in `frontend`.
+- Run the Gradle wrapper from the repository root. Logical project paths stay
+  `:cluster`, `:counter-protocol`, and `:trading-gateway`.
+- Keep runtime data paths relative to the repository root when moving modules.
+
 ## Correctness and architecture
 
 - Keep the clustered service deterministic: the same prior state and ordered

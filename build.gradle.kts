@@ -41,3 +41,8 @@ subprojects {
         options.release.set(21)
     }
 }
+
+// Clean generated frontend output alongside the backend build directories.
+tasks.named<Delete>("clean") {
+    delete("frontend/dist", "frontend/.vite", "frontend/node_modules/.vite")
+}

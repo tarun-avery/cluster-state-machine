@@ -1,190 +1,142 @@
 # Cluster State Machine
 
-A learning project with an Aeron Cluster counter, a Kotlin Spring Boot trading
-gateway using Vert.x WebSockets, and a React client. The cluster accepts
-increment and decrement commands and returns the resulting count.
-
-The current cluster is a **single-node development cluster**. It demonstrates
-the Aeron Cluster service and client path, but does not demonstrate multi-node
-replication or failover yet.
-
-## Modules
-
-| Module | Role |
-| --- | --- |
-| `counter-protocol` | Shared Kotlin command and response codes used by both backend apps. |
-| `cluster` | Spring Boot process hosting Aeron Media Driver, Archive, Consensus Module, and the counter service. |
-| `trading-gateway` | Spring Boot process with an Aeron Cluster client and Vert.x WebSocket endpoint. |
-| `frontend` | React counter UI that sends increment/decrement commands and displays count updates. |
-
-## Message flow
+A learning project showing how a React counter sends commands through a
+Kotlin/Spring Boot gateway to an Aeron Cluster state machine. Click **+1** or
+**-1** to update the count; all browsers connected to the gateway receive the result.
 
 ```text
-React browser
-    │ JSON over WebSocket
-    ▼
-Vert.x trading gateway
-    │ Aeron Cluster ingress command
-    ▼
-Aeron Cluster counter service
-    │ count response over cluster egress
-    ▼
-Vert.x broadcasts the count to connected browsers
+React → Vert.x WebSocket gateway → Aeron Cluster counter → gateway → browsers
 ```
 
-The WebSocket accepts JSON commands:
+The backend modules live in `backend/`: `cluster` hosts the single-node cluster,
+`trading-gateway` connects to it, and `counter-protocol` defines shared messages.
+The React app lives in `frontend/`.
 
-```json
-{"type":"increment"}
-{"type":"decrement"}
-{"type":"get"}
-```
-
-Count responses have this shape:
-
-```json
-{"type":"count","count":"1","status":"ok"}
-```
-
-`count` is a decimal string so the browser preserves the full signed 64-bit
-range without JavaScript number rounding. This changes the original WebSocket
-count field from a JSON number to a string; other clients must update accordingly.
-The Aeron command, response, and snapshot formats are unchanged.
-
-The cluster command payload is one byte: `0` for get, `1` for increment, and
-`2` for decrement. The egress response is one status byte followed by the
-64-bit count in little-endian byte order. Invalid commands and counter overflow
-leave the count unchanged.
+**Status:** single-node development demo. Multi-node replication and leader
+failover have not been exercised.
 
 ## Requirements
 
-- JDK 21 or newer
-- Gradle wrapper (included)
-- Node.js 20.19 or newer and pnpm 11 for the frontend
+- JDK 21 or newer.
+- Node.js 22.13 or newer; Node.js 24 is a suitable choice.
+- pnpm 11.25.0, matching `frontend/package.json`.
+- The included Gradle wrapper; no separate Gradle installation is needed.
 
-Dependency versions are pinned in `gradle/libs.versions.toml` and
-`frontend/package.json`.
+If pnpm is missing, install it after Node.js:
+
+```sh
+npm install --global pnpm@11.25.0
+```
 
 ## Run locally
 
-Start each process in its own terminal from the repository root. The Gradle
-run tasks use the repository root as their working directory, so runtime data
-always goes into the root directories described below.
+Clone the repository and install frontend dependencies:
 
-The run tasks and executable JAR manifests supply the `java.base/jdk.internal.misc`
-export required by Aeron/Agrona. For an IDE run configuration, add this VM option:
-
-```text
---add-exports=java.base/jdk.internal.misc=ALL-UNNAMED
+```sh
+git clone https://github.com/tarun-avery/cluster-state-machine.git
+cd cluster-state-machine
+pnpm --dir frontend install --frozen-lockfile
 ```
 
-1. Start the single-node cluster:
+If you already have the project, open its root directory instead of cloning it
+again. In IntelliJ, load or reload the root Gradle project.
 
-   ```sh
-   ./gradlew :cluster:bootRun
-   ```
+Start these processes in separate terminals, each from the repository root:
 
-2. Start the gateway:
+**1. Cluster**
 
-   ```sh
-   ./gradlew :trading-gateway:bootRun
-   ```
+```sh
+./gradlew :cluster:bootRun
+```
 
-3. Install and start the React UI:
+Wait for `Started ClusterApplicationKt`.
 
-   ```sh
-   cd frontend
-   pnpm install
-   pnpm dev
-   ```
+**2. Gateway**
 
-Open the local address printed by Vite. The gateway listens on
-`ws://127.0.0.1:8081/ws`; the cluster ingress port is `9002`.
+```sh
+./gradlew :trading-gateway:bootRun
+```
 
-## Build
+Wait for `Connected to Aeron Cluster` and `WebSocket listening`.
+
+**3. Frontend**
+
+```sh
+pnpm --dir frontend dev
+```
+
+Open the address printed by Vite, usually <http://127.0.0.1:5173>. The page should
+show **Connected** and the current count. Test **+1** and **-1**, then open another
+browser tab to see both counts update together.
+
+All three commands keep running. Gradle showing `EXECUTING` is normal after
+startup. Stop each process with **Ctrl+C**, starting with the frontend, then the
+gateway, then the cluster.
+
+## Development
+
+Build and verify the project:
 
 ```sh
 ./gradlew build
-cd frontend
-pnpm build
+pnpm --dir frontend format:check
+pnpm --dir frontend build
 ```
 
-The backend build includes tests for ordered counter commands, invalid payloads,
-overflow, snapshot encoding/restoration, replay callbacks, WebSocket command
-handling, exact 64-bit JSON counts, disconnected submissions, and port conflicts.
-
-## Formatting
-
-Kotlin and Gradle Kotlin scripts use the official Kotlin conventions (four
-spaces), enforced by ktlint. The React frontend uses Prettier defaults (two
-spaces). `.editorconfig` shares indentation and line-ending settings with editors.
-Formatter versions are pinned in the version catalog and frontend package lock.
-
-Apply formatting from the repository root:
+The backend build runs the tests and ktlint checks. Kotlin and Gradle scripts
+follow the official Kotlin style with four spaces; frontend files use Prettier
+defaults with two spaces. Apply formatting with:
 
 ```sh
 ./gradlew ktlintFormat
 pnpm --dir frontend format
 ```
 
-Check formatting without changing files:
+Editor settings are shared through `.editorconfig`. The Gradle run tasks supply
+the JVM access setting required by Aeron/Agrona. For a direct IntelliJ application
+run configuration, use the repository root as the working directory and add:
 
-```sh
-./gradlew ktlintCheck
-pnpm --dir frontend format:check
+```text
+--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED
 ```
 
-Backend `build` includes ktlint checks; run the frontend formatting check alongside
-`pnpm --dir frontend build`. In IntelliJ, keep EditorConfig support enabled and
-select **Editor → Code Style → Kotlin → Set from → Kotlin style guide**. Run the
-formatter commands above for the exact formatting used by the build.
+## Configuration and data
 
-## Connection behavior
+The default gateway endpoint is `ws://127.0.0.1:8081/ws`; cluster ingress is
+`127.0.0.1:9002`. Gateway properties are defined in
+[`application.properties`](backend/trading-gateway/src/main/resources/application.properties).
+Set `VITE_GATEWAY_WS_URL` when starting or building the frontend to use a different
+gateway endpoint.
 
-- One gateway owns one Aeron Cluster session on a dedicated thread. It sends
-  keep-alives even when browsers are idle and fetches current state on reconnect.
-- The clustered service replies to the requesting gateway. That gateway broadcasts
-  the count entity to all of its connected browsers. Multiple independent gateway
-  instances do not currently subscribe to each other's updates.
-- Browsers reconnect automatically after a gateway restart and receive fresh state.
-  Buttons stay disabled until the first count arrives on a new connection.
-- Commands are rejected while the gateway knows it is disconnected or its bounded
-  queue is full. Commands already queued when a connection fails are discarded;
-  an in-flight command may have applied before its response was lost. There is no
-  automatic command replay or exactly-once retry guarantee. Fetch current state
-  before deciding whether to retry.
-- A blocked Aeron offer times out after five seconds and triggers reconnect.
-  Connection retries pause for one second. A WebSocket port conflict fails Spring
-  startup instead of leaving the app apparently running without its endpoint.
-- `VITE_GATEWAY_WS_URL` can override the browser endpoint at frontend startup/build.
+Runtime data is stored under `cluster-data/` and `gateway-data/` at the repository
+root. Preserve these across restarts. Deleting `cluster-data/` while the apps are
+stopped resets the counter's recorded state.
 
-## Verification status
+To remove generated backend and frontend output, stop the apps and run:
 
-A local single-node smoke check exercised initial state, increment/decrement,
-two-browser broadcasts, malformed WebSocket commands, and an idle session longer
-than the default cluster session timeout. The React controls and automatic browser
-reconnection after restarting the gateway were also exercised.
+```sh
+./gradlew clean
+```
 
-Snapshot tests use Aeron callback doubles; a real snapshot/restart cycle,
-archive replay after process restart, multi-node replication, and leader failover
-have not been exercised.
+This preserves runtime data and installed frontend dependencies. Generated output
+and caches are ignored by Git and reappear when needed.
 
-## Data and reset
+## Limitations
 
-The cluster stores its Aeron and archive data under `cluster-data/`; the gateway
-uses `gateway-data/` for its local Media Driver. These directories are ignored
-by Git. Stop the processes before deleting local data. Removing `cluster-data/`
-resets the counter's persisted cluster state.
+- This is a single-member cluster; the gateway is a client, not another member.
+- Real snapshot/restart recovery, archive replay after restart, and leader failover
+  have not been verified. Snapshot callbacks are covered by unit tests.
+- Commands have no exactly-once retry guarantee. A lost response may follow a
+  committed update; fetch current state before deciding whether to retry.
+- Broadcasts cover browsers connected to the same gateway. Independent gateways
+  do not currently receive each other's updates.
 
-## Next learning steps
+See [protocol and connection behavior](docs/protocol.md) for message formats and
+reconnection details.
 
-1. Understand the command and response encoding and the counter's snapshot.
-2. Exercise restart and snapshot/replay behavior.
-3. Evolve the cluster configuration to three members and verify replication
-   and leader failover.
+## Help and contributions
 
-## References
-
-- [Aeron Cluster tutorial](https://github.com/aeron-io/aeron/wiki/Cluster-Tutorial)
-- [Aeron Cluster component model](https://github.com/aeron-io/aeron/wiki/Cluster-Component-Model)
-- [Vert.x Web documentation](https://vertx.io/docs/vertx-web/java/)
+Use [GitHub issues](https://github.com/tarun-avery/cluster-state-machine/issues)
+for questions or bugs. Include the command you ran, relevant logs, and your Java,
+Node.js and pnpm versions. Before contributing, read [AGENTS.md](AGENTS.md) and run
+the development checks above.
