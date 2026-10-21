@@ -1,0 +1,44 @@
+namespace com.example.clusterstatemachine.messages
+
+annotation Message { id: Int schemaId: Int version: Int }
+annotation Field { id: Int }
+annotation FullRange {}
+
+type CounterDelta inherits Long
+type Multiplier inherits Long
+type Divisor inherits Long
+type CounterValue inherits Long
+// Status codes: 0 OK, 1 invalid command, 2 overflow, 3 division by zero.
+type ResultStatusCode inherits Long
+
+@Message(id = 101, schemaId = 2, version = 0)
+model Add {
+    @Field(id = 1) @FullRange
+    quantity: CounterDelta
+}
+
+@Message(id = 102, schemaId = 2, version = 0)
+model Subtract {
+    @Field(id = 1) @FullRange
+    quantity: CounterDelta
+}
+
+@Message(id = 103, schemaId = 2, version = 0)
+model Multiply {
+    @Field(id = 1) @FullRange
+    quantity: Multiplier
+}
+
+@Message(id = 104, schemaId = 2, version = 0)
+model Divide {
+    @Field(id = 1) @FullRange
+    quantity: Divisor
+}
+
+@Message(id = 105, schemaId = 2, version = 0)
+model CounterResult {
+    @Field(id = 1)
+    status: ResultStatusCode
+    @Field(id = 2) @FullRange
+    count: CounterValue
+}

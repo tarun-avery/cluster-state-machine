@@ -18,7 +18,8 @@ failover have not been exercised.
 
 ## Requirements
 
-- JDK 21 or newer.
+- JDK 25 for building (the generator runs on JDK 25); application bytecode targets JDK 21.
+- The pinned sibling Taxi generator checkout; see [Taxi integration setup](docs/taxi-integration.md).
 - Node.js 22.13 or newer; Node.js 24 is a suitable choice.
 - pnpm 11.25.0, matching `frontend/package.json`.
 - The included Gradle wrapper; no separate Gradle installation is needed.
