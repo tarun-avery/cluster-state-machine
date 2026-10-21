@@ -8,16 +8,30 @@ The gateway accepts connections at `/ws`. Send one JSON command per message:
 { "type": "increment" }
 ```
 
-The other supported types are `decrement` and `get`. Count updates look like:
+The legacy types `increment`, `decrement`, and `get` accept no quantity. Arithmetic
+commands use `add`, `subtract`, `multiply`, or `divide` with a required decimal
+string quantity (never a JSON number, to avoid rounding):
+
+```json
+{ "type": "multiply", "quantity": "3" }
+```
+
+For `/4`, send `{"type":"divide","quantity":"4"}`; for `-10`, send
+`{"type":"subtract","quantity":"10"}`. Quantities may be negative and must fit
+in a signed 64-bit integer. Fractional, missing, and out-of-range quantities are
+rejected before submission. Each message applies one operation to the current
+count in cluster order. Division rounds toward zero.
+
+Count updates look like:
 
 ```json
 { "type": "count", "count": "1", "status": "ok" }
 ```
 
 `count` is a decimal string so JavaScript preserves the full signed 64-bit range.
-Other statuses are `invalid_command`, `overflow`, and `unknown`. Invalid browser
+Other statuses are `invalid_command`, `overflow`, `division_by_zero`, and `unknown`. Invalid browser
 commands or rejected submissions return a message with `type: "error"` and a
-`message` field. Invalid cluster commands and counter overflow leave state unchanged.
+`message` field. Invalid cluster commands, counter overflow, and division by zero leave state unchanged.
 
 ## Cluster messages and snapshots
 
@@ -25,11 +39,21 @@ The application protocol is explicit binary encoding, not generated SBE codecs:
 
 | Payload        | Encoding                                                            |
 | -------------- | ------------------------------------------------------------------- |
-| Command        | One byte: `0` for get, `1` for increment, `2` for decrement         |
+| Legacy command | One byte: `0` for get, `1` for increment, `2` for decrement |
+| Arithmetic command | One opcode byte (`3` add, `4` subtract, `5` multiply, `6` divide), then a signed 64-bit quantity in little-endian order |
 | Response       | One status byte followed by the 64-bit count in little-endian order |
 | Snapshot state | The 64-bit count in little-endian order                             |
 
-Status bytes are `0` for OK, `1` for invalid command, and `2` for overflow.
+Status bytes are `0` for OK, `1` for invalid command, `2` for overflow, and `3`
+for division by zero. Command lengths must be exactly one byte for legacy
+commands and nine bytes for arithmetic. `Long.MIN_VALUE / -1` reports overflow.
+
+Existing command opcodes, response layout, and snapshots are unchanged, so stored
+legacy commands can still replay. Deploy the updated cluster service before
+sending arithmetic commands; older services reject the new opcodes. Existing
+clients can continue sending legacy commands, but must understand the additional
+status if receiving arithmetic results. No data reset or snapshot migration is
+required. Mixed service versions must not process arithmetic commands.
 The service implements snapshot writing and restoration callbacks. A real
 snapshot/restart cycle has not yet been verified.
 

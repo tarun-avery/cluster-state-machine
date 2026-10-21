@@ -7,6 +7,7 @@ export default function App() {
   const [count, setCount] = useState(null);
   const [status, setStatus] = useState("connecting");
   const [error, setError] = useState("");
+  const [quantity, setQuantity] = useState("1");
   const socketRef = useRef(null);
 
   useEffect(() => {
@@ -46,7 +47,15 @@ export default function App() {
               throw new Error("Invalid counter value");
             }
             setCount(message.count);
-            setError(message.status === "ok" ? "" : message.status);
+            setError(
+              message.status === "ok"
+                ? ""
+                : message.status === "division_by_zero"
+                  ? "Cannot divide by zero. The count is unchanged."
+                  : message.status === "overflow"
+                    ? "Result is outside the whole-number range. The count is unchanged."
+                    : message.status,
+            );
           } else if (message.type === "error") {
             setError(message.message);
           }
@@ -65,9 +74,15 @@ export default function App() {
     };
   }, []);
 
+  const validQuantity =
+    /^[+-]?[0-9]+$/.test(quantity) &&
+    BigInt(quantity) >= -(2n ** 63n) &&
+    BigInt(quantity) <= 2n ** 63n - 1n;
+  const ready = status === "connected" && count !== null && validQuantity;
+
   function send(type) {
     if (socketRef.current?.readyState === WebSocket.OPEN) {
-      socketRef.current.send(JSON.stringify({ type }));
+      socketRef.current.send(JSON.stringify({ type, quantity }));
       setError("");
     }
   }
@@ -85,23 +100,49 @@ export default function App() {
         <div className="count" aria-live="polite">
           {count === null ? "—" : count}
         </div>
+        <label className="quantity-label" htmlFor="quantity">
+          Quantity
+        </label>
+        <input
+          id="quantity"
+          className="quantity-input"
+          type="text"
+          value={quantity}
+          onChange={(event) => setQuantity(event.target.value)}
+          aria-describedby="quantity-help"
+          aria-invalid={!validQuantity}
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <p className="quantity-help" id="quantity-help">
+          Enter a whole number, then choose an operation. Division rounds toward
+          zero.
+        </p>
+        {!validQuantity && (
+          <p className="error">
+            Enter a whole number within the signed 64-bit range.
+          </p>
+        )}
         <div className="controls">
-          <button
-            type="button"
-            onClick={() => send("decrement")}
-            disabled={status !== "connected" || count === null}
-            aria-label="Decrement count"
-          >
-            −1
-          </button>
-          <button
-            type="button"
-            onClick={() => send("increment")}
-            disabled={status !== "connected" || count === null}
-            aria-label="Increment count"
-          >
-            +1
-          </button>
+          {[
+            ["add", "+", "Add"],
+            ["subtract", "−", "Subtract"],
+            ["multiply", "×", "Multiply by"],
+            ["divide", "/", "Divide by"],
+          ].map(([type, symbol, label]) => (
+            <button
+              key={type}
+              type="button"
+              onClick={() => send(type)}
+              disabled={
+                !ready || (type === "divide" && BigInt(quantity) === 0n)
+              }
+              aria-label={`${label} ${quantity}`}
+            >
+              {symbol}
+              {quantity}
+            </button>
+          ))}
         </div>
 
         <div className="connection">

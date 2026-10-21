@@ -52,17 +52,15 @@ class CounterClusteredService : ClusteredService {
         length: Int,
         header: Header,
     ) {
-        var status = CounterStatus.OK
-        if (length != COMMAND_LENGTH) {
-            status = CounterStatus.INVALID_COMMAND
-        } else {
-            when (buffer.getByte(offset)) {
-                CounterCommand.GET.code -> Unit
-                CounterCommand.INCREMENT.code -> if (count == Long.MAX_VALUE) status = CounterStatus.OVERFLOW else count++
-                CounterCommand.DECREMENT.code -> if (count == Long.MIN_VALUE) status = CounterStatus.OVERFLOW else count--
-                else -> status = CounterStatus.INVALID_COMMAND
+        val command = if (length > 0) CounterCommand.entries.firstOrNull { it.code == buffer.getByte(offset) } else null
+        val expectedLength = if (command?.requiresQuantity == true) 1 + Long.SIZE_BYTES else 1
+        val status =
+            if (command == null || length != expectedLength) {
+                CounterStatus.INVALID_COMMAND
+            } else {
+                val quantity = if (command.requiresQuantity) buffer.getLong(offset + 1, ByteOrder.LITTLE_ENDIAN) else 1L
+                apply(command, quantity)
             }
-        }
 
         if (session != null) {
             val response = ExpandableArrayBuffer(RESPONSE_LENGTH)
@@ -102,6 +100,42 @@ class CounterClusteredService : ClusteredService {
 
     override fun onTerminate(cluster: Cluster) = Unit
 
+    private fun apply(
+        command: CounterCommand,
+        quantity: Long,
+    ): CounterStatus {
+        if (command == CounterCommand.DIVIDE && quantity == 0L) return CounterStatus.DIVISION_BY_ZERO
+        return try {
+            val next =
+                when (command) {
+                    CounterCommand.GET -> {
+                        count
+                    }
+
+                    CounterCommand.INCREMENT, CounterCommand.ADD -> {
+                        Math.addExact(count, quantity)
+                    }
+
+                    CounterCommand.DECREMENT, CounterCommand.SUBTRACT -> {
+                        Math.subtractExact(count, quantity)
+                    }
+
+                    CounterCommand.MULTIPLY -> {
+                        Math.multiplyExact(count, quantity)
+                    }
+
+                    CounterCommand.DIVIDE -> {
+                        if (count == Long.MIN_VALUE && quantity == -1L) throw ArithmeticException("Counter overflow")
+                        count / quantity
+                    }
+                }
+            count = next
+            CounterStatus.OK
+        } catch (_: ArithmeticException) {
+            CounterStatus.OVERFLOW
+        }
+    }
+
     private fun offerResponse(
         session: ClientSession,
         response: MutableDirectBuffer,
@@ -114,7 +148,6 @@ class CounterClusteredService : ClusteredService {
     }
 
     private companion object {
-        const val COMMAND_LENGTH = 1
         const val RESPONSE_LENGTH = 1 + Long.SIZE_BYTES
     }
 }

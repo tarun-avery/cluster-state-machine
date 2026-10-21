@@ -1,8 +1,9 @@
 # Cluster State Machine
 
 A learning project showing how a React counter sends commands through a
-Kotlin/Spring Boot gateway to an Aeron Cluster state machine. Click **+1** or
-**-1** to update the count; all browsers connected to the gateway receive the result.
+Kotlin/Spring Boot gateway to an Aeron Cluster state machine. Enter a quantity
+and choose **add**, **subtract**, **multiply**, or **divide** to update the count;
+all browsers connected to the gateway receive the result.
 
 ```text
 React → Vert.x WebSocket gateway → Aeron Cluster counter → gateway → browsers
@@ -66,8 +67,14 @@ pnpm --dir frontend dev
 ```
 
 Open the address printed by Vite, usually <http://127.0.0.1:5173>. The page should
-show **Connected** and the current count. Test **+1** and **-1**, then open another
-browser tab to see both counts update together.
+show **Connected** and the current count. Enter `10` and click **+10**, then enter
+`3` and click **×3**, then enter `4` and click **/4**. From an initial count of
+zero this produces `10 → 30 → 7`. Open another browser tab to see both counts
+update together.
+
+Quantities and counts are signed 64-bit whole numbers. Division rounds toward
+zero; division by zero and overflow leave the count unchanged. Negative quantities
+are supported.
 
 All three commands keep running. Gradle showing `EXECUTING` is normal after
 startup. Stop each process with **Ctrl+C**, starting with the frontend, then the
