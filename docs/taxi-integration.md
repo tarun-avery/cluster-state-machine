@@ -11,8 +11,21 @@ edited or committed. Taxi/compiler libraries are build-time dependencies only.
 
 Keep the two repositories as siblings. Use JDK 25 to build. If the generator is
 elsewhere, add `-PtaxiCodegenDir=/path/to/taxi-kotlin-codegen` to Gradle commands.
+For a missing sibling checkout, clone it from the cluster repository root:
+
+```sh
+git clone git@github.com:tarun-avery/taxi-kotlin-codegen.git ../taxi-kotlin-codegen
+```
+
 Check out the commit listed as `taxiCodegenRevision` in `gradle.properties` in the
-generator repository before building. Preserve existing changes in that checkout.
+generator repository before building. The current pin is:
+
+```sh
+git -C ../taxi-kotlin-codegen checkout 74cfec57c6c91882bd3d0717dd4f6927e23e8067
+```
+
+For an existing checkout, preserve changes before switching revisions. Git must
+be available during Gradle configuration for the revision and clean-checkout checks.
 The revisions are local until explicitly pushed; another machine needs those commits.
 
 From the cluster repository root:
@@ -72,3 +85,37 @@ reject generated requests; downgrade is unsafe once generated commands enter the
 recorded log. Existing data requires no reset. Mixed service versions must not
 process generated commands. Browser JSON, arithmetic rules, rounding, and the full
 signed 64-bit range are unchanged. No performance improvement is claimed.
+
+## Verification and milestones
+
+The implemented milestones are:
+
+1. Generator `74cfec5`: explicit full-range Long composites, independent byte
+   fixtures and official SBE reference-codec interoperability, compatibility CLI.
+2. Cluster `b9739d0`: pinned composite build, semantic Taxi schema, preserved
+   version 0 baseline, and generated-message fixtures at nonzero offsets.
+3. Cluster `e61c6f8`: generated transport adapters, legacy decoding/replies,
+   malformed-message validation, and deterministic arithmetic with the full range.
+4. Integration coverage and operational documentation: the opt-in test below.
+
+Run normal checks and the real single-node integration test from the cluster root:
+
+```sh
+./gradlew clean build ktlintCheck :cluster:integrationTest
+pnpm --dir frontend format:check
+pnpm --dir frontend build
+```
+
+The integration test seeds a real recorded log with legacy payloads, closes the
+cluster, and starts a fresh service instance against the same temporary data.
+It verifies both WebSocket clients observe all four generated operations,
+whole-number rounding, zero-division rejection, overflow, and Long.MIN_VALUE /
+Long.MAX_VALUE quantities and results. It then closes and starts the cluster
+again to check mixed-format log replay and continued legacy client compatibility.
+The test uses current service code to seed legacy payloads; it does not launch a
+historical binary. It uses no snapshots and does not simulate crashes or failover.
+
+Runtime JAR inspection confirms no Taxi compiler/generator libraries are packaged
+with the gateway or cluster. Generated sources are rebuilt after clean and are
+not tracked by Git. SBE reference tooling remains test-only in the generator;
+production generation uses Taxi's compiler and the custom Kotlin generator.

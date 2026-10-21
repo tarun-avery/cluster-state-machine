@@ -5,7 +5,8 @@
 Build a small counter state machine with Aeron Cluster, a Kotlin/Spring Boot
 cluster application, a Kotlin/Spring Boot trading gateway that connects as an
 Aeron Cluster client and exposes Vert.x WebSockets, and a React browser client.
-The counter supports increment and decrement commands. Keep domain behavior to
+The counter supports add, subtract, multiply, and divide with signed Long quantities,
+plus legacy increment/decrement/get commands. Keep domain behavior to
 the counter; do not add banking or trading logic.
 
 ## Before changing code
@@ -20,6 +21,11 @@ the counter; do not add banking or trading logic.
 
 - Kotlin modules live in `backend/cluster`, `backend/counter-protocol`, and
   `backend/trading-gateway`. React lives in `frontend`.
+- Taxi schemas live in `backend/counter-protocol/src/main/taxi`; keep their reviewed
+  baselines unchanged when evolving schemas. Generated sources live only in build/.
+- Use the generator revision pinned in gradle.properties. See docs/taxi-integration.md
+  for sibling checkout setup and the build-time dependency; do not add Taxi compiler
+  dependencies to the application's runtime.
 - Run the Gradle wrapper from the repository root. Logical project paths stay
   `:cluster`, `:counter-protocol`, and `:trading-gateway`.
 - Keep runtime data paths relative to the repository root when moving modules.
@@ -62,6 +68,9 @@ the counter; do not add banking or trading logic.
   snapshots, replay, and failover. Do not claim the latter were verified unless
   they were exercised.
 - Do not start a multi-node cluster or long-running benchmark unless requested.
+- Run `./gradlew :cluster:integrationTest` when changing wire adapters or replay
+  behavior. It starts a temporary single-node cluster and performs graceful restart
+  replay checks. It does not verify snapshots, crashes, or multi-node failover.
 - Report what changed, checks run, and verification gaps.
 
 ## Commits

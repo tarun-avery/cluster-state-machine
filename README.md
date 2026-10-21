@@ -92,9 +92,19 @@ pnpm --dir frontend format:check
 pnpm --dir frontend build
 ```
 
-The backend build runs the tests and ktlint checks. Kotlin and Gradle scripts
-follow the official Kotlin style with four spaces; frontend files use Prettier
-defaults with two spaces. Apply formatting with:
+The backend build regenerates Taxi codecs as needed, checks the schema baseline,
+and runs unit tests and ktlint checks. To also exercise a real single-node cluster,
+WebSocket broadcasts, and legacy/generated log replay across restarts, run:
+
+```sh
+./gradlew :cluster:integrationTest
+```
+
+This test uses temporary data and available local ports, closes its cluster and
+clients, and leaves your normal cluster data intact.
+
+Kotlin and Gradle scripts follow the official Kotlin style with four spaces;
+frontend files use Prettier defaults with two spaces. Apply formatting with:
 
 ```sh
 ./gradlew ktlintFormat
@@ -133,8 +143,10 @@ and caches are ignored by Git and reappear when needed.
 ## Limitations
 
 - This is a single-member cluster; the gateway is a client, not another member.
-- Real snapshot/restart recovery, archive replay after restart, and leader failover
-  have not been verified. Snapshot callbacks are covered by unit tests.
+- Single-node recorded-log replay across restarts is covered by the opt-in
+  integration test. Multi-node replication, leader failover, crash/power-loss
+  recovery, and a real snapshot/restart cycle have not been verified. Snapshot
+  callbacks are covered by unit tests.
 - Commands have no exactly-once retry guarantee. A lost response may follow a
   committed update; fetch current state before deciding whether to retry.
 - Broadcasts cover browsers connected to the same gateway. Independent gateways

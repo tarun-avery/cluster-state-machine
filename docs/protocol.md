@@ -63,8 +63,9 @@ Legacy formats are retained for recorded command replay and older gateways. Upgr
 the service before the gateway; older services reject generated messages. A service
 downgrade cannot replay a log containing generated commands. Do not mix service
 versions while processing them. No snapshot migration or data reset is required.
-Real restart replay is verified separately from snapshot callbacks; multi-node
-failover and a real snapshot/restart cycle have not been verified.
+The opt-in `:cluster:integrationTest` verifies single-node legacy and generated
+recorded-log replay across graceful restarts. Multi-node failover, crash recovery,
+and a real snapshot/restart cycle have not been verified.
 
 ## Connections and delivery
 
