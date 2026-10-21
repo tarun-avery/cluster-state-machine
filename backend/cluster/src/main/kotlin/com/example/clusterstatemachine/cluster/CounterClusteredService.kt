@@ -1,7 +1,9 @@
 package com.example.clusterstatemachine.cluster
 
 import com.example.clusterstatemachine.protocol.CounterCommand
+import com.example.clusterstatemachine.protocol.CounterMessage
 import com.example.clusterstatemachine.protocol.CounterStatus
+import com.example.clusterstatemachine.protocol.CounterWireCodec
 import io.aeron.ExclusivePublication
 import io.aeron.Image
 import io.aeron.cluster.codecs.CloseReason
@@ -52,21 +54,26 @@ class CounterClusteredService : ClusteredService {
         length: Int,
         header: Header,
     ) {
-        val command = if (length > 0) CounterCommand.entries.firstOrNull { it.code == buffer.getByte(offset) } else null
-        val expectedLength = if (command?.requiresQuantity == true) 1 + Long.SIZE_BYTES else 1
-        val status =
-            if (command == null || length != expectedLength) {
-                CounterStatus.INVALID_COMMAND
-            } else {
-                val quantity = if (command.requiresQuantity) buffer.getLong(offset + 1, ByteOrder.LITTLE_ENDIAN) else 1L
-                apply(command, quantity)
+        val request =
+            try {
+                CounterWireCodec.decodeRequest(buffer, offset, length)
+            } catch (_: IllegalArgumentException) {
+                null
+            } catch (_: IndexOutOfBoundsException) {
+                null
             }
+        val status = if (request == null) CounterStatus.INVALID_COMMAND else apply(request.command, request.quantity ?: 1L)
 
         if (session != null) {
-            val response = ExpandableArrayBuffer(RESPONSE_LENGTH)
-            response.putByte(0, status.code)
-            response.putLong(1, count, ByteOrder.LITTLE_ENDIAN)
-            offerResponse(session, response)
+            val response = ExpandableArrayBuffer(CounterWireCodec.RESULT_LENGTH)
+            val responseLength =
+                CounterWireCodec.encodeResult(
+                    response,
+                    0,
+                    CounterMessage(status, count),
+                    CounterWireCodec.isLegacyRequest(length),
+                )
+            offerResponse(session, response, responseLength)
         }
     }
 
@@ -139,15 +146,12 @@ class CounterClusteredService : ClusteredService {
     private fun offerResponse(
         session: ClientSession,
         response: MutableDirectBuffer,
+        length: Int,
     ) {
         val idle = idleStrategy ?: return
         idle.reset()
-        while (session.offer(response, 0, RESPONSE_LENGTH) < 0) {
+        while (session.offer(response, 0, length) < 0) {
             idle.idle()
         }
-    }
-
-    private companion object {
-        const val RESPONSE_LENGTH = 1 + Long.SIZE_BYTES
     }
 }

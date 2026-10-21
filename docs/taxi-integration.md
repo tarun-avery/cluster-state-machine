@@ -48,5 +48,27 @@ existing IDs, encodings, and offsets must remain stable. Fixed-profile append-on
 optional-field evolution is supported; rich enum evolution is not, so status uses
 a documented Long code. Generated code is excluded from formatter mutation.
 
-At this milestone the shared generated classes are available and tested. The
-running service still uses the legacy protocol until the transport adapters land.
+## Runtime flow and migration
+
+The gateway's owning Aeron thread encodes add/subtract/multiply/divide using the
+generated classes. Legacy browser increment/decrement commands map to generated
+Add(1)/Subtract(1). GET retains the one-byte legacy encoding: it needs no operand
+and the generator deliberately does not generate empty data classes.
+
+The cluster adapter reads the header, chooses the generated decoder, and copies
+the quantity before applying arithmetic. It rejects malformed lengths, schemas,
+templates, unsupported versions, and noncanonical full-range encodings without
+changing state. Version 0 is supported explicitly; a future version requires an
+adapter update even when the schema compatibility check passes.
+
+Generated commands receive generated CounterResult replies. Legacy one-byte and
+nine-byte commands still decode and receive legacy nine-byte replies, preserving
+old log replay and old gateway behavior. The new gateway reads both reply formats
+and materializes an owned CounterMessage before handing it to Vert.x. Buffer views
+never escape Aeron's callback. Snapshots remain the existing raw eight-byte Long.
+
+Deploy the updated cluster before starting the updated gateway. Older services
+reject generated requests; downgrade is unsafe once generated commands enter the
+recorded log. Existing data requires no reset. Mixed service versions must not
+process generated commands. Browser JSON, arithmetic rules, rounding, and the full
+signed 64-bit range are unchanged. No performance improvement is claimed.

@@ -10,7 +10,8 @@ React → Vert.x WebSocket gateway → Aeron Cluster counter → gateway → bro
 ```
 
 The backend modules live in `backend/`: `cluster` hosts the single-node cluster,
-`trading-gateway` connects to it, and `counter-protocol` defines shared messages.
+`trading-gateway` connects to it, and `counter-protocol` generates shared messages
+from Taxi using the pinned Kotlin generator.
 The React app lives in `frontend/`.
 
 **Status:** single-node development demo. Multi-node replication and leader
@@ -139,7 +140,8 @@ and caches are ignored by Git and reappear when needed.
 - Broadcasts cover browsers connected to the same gateway. Independent gateways
   do not currently receive each other's updates.
 
-See [protocol and connection behavior](docs/protocol.md) for message formats and
+See [Taxi integration](docs/taxi-integration.md) and
+[protocol and connection behavior](docs/protocol.md) for message formats and
 reconnection details.
 
 ## Help and contributions

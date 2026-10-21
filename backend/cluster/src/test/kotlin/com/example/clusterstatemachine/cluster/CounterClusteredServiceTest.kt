@@ -1,6 +1,8 @@
 package com.example.clusterstatemachine.cluster
 
 import com.example.clusterstatemachine.protocol.CounterCommand
+import com.example.clusterstatemachine.protocol.CounterRequest
+import com.example.clusterstatemachine.protocol.CounterWireCodec
 import io.aeron.ExclusivePublication
 import io.aeron.Image
 import io.aeron.cluster.service.ClientSession
@@ -30,8 +32,9 @@ class CounterClusteredServiceTest {
         `when`(cluster.idleStrategy()).thenReturn(NoOpIdleStrategy.INSTANCE)
         `when`(session.offer(any(DirectBuffer::class.java), anyInt(), anyInt())).thenAnswer {
             val buffer = it.getArgument<DirectBuffer>(0)
-            responseStatus = buffer.getByte(0)
-            responseCount = buffer.getLong(1, ByteOrder.LITTLE_ENDIAN)
+            val message = CounterWireCodec.decodeResult(buffer, it.getArgument(1), it.getArgument(2))
+            responseStatus = message.status.code
+            responseCount = message.count
             1L
         }
         service.onStart(cluster, null)
@@ -122,6 +125,53 @@ class CounterClusteredServiceTest {
         arithmetic(CounterCommand.SUBTRACT, 10, replay = true)
         command(0)
         assertEquals(26L, responseCount)
+    }
+
+    @Test
+    fun `generated and legacy commands share ordered state and full range`() {
+        fun generated(
+            command: CounterCommand,
+            quantity: Long,
+            replay: Boolean = false,
+        ) {
+            val buffer = ExpandableArrayBuffer(32)
+            val length = CounterWireCodec.encodeRequest(buffer, 3, CounterRequest(command, quantity))
+            service.onSessionMessage(if (replay) null else session, 0, buffer, 3, length, mock(Header::class.java))
+        }
+        generated(CounterCommand.ADD, 20)
+        command(2)
+        generated(CounterCommand.MULTIPLY, 3, replay = true)
+        arithmetic(CounterCommand.SUBTRACT, 10, replay = true)
+        generated(CounterCommand.DIVIDE, 4)
+        assertEquals(11L, responseCount)
+        generated(CounterCommand.MULTIPLY, 0)
+        generated(CounterCommand.ADD, Long.MIN_VALUE)
+        assertEquals(Long.MIN_VALUE, responseCount)
+        generated(CounterCommand.DIVIDE, -1)
+        assertEquals(Long.MIN_VALUE, responseCount)
+        assertEquals(2.toByte(), responseStatus)
+        generated(CounterCommand.DIVIDE, 0)
+        assertEquals(3.toByte(), responseStatus)
+        generated(CounterCommand.SUBTRACT, Long.MIN_VALUE)
+        assertEquals(0L, responseCount)
+    }
+
+    @Test
+    fun `malformed generated commands cannot mutate or terminate the service`() {
+        command(1)
+        val buffer = ExpandableArrayBuffer(32)
+        CounterWireCodec.encodeRequest(buffer, 3, CounterRequest(CounterCommand.ADD, 5))
+        for (length in 0 until CounterWireCodec.ARITHMETIC_LENGTH) {
+            service.onSessionMessage(session, 0, buffer, 3, length, mock(Header::class.java))
+            assertEquals(1L, responseCount)
+            assertEquals(1.toByte(), responseStatus)
+        }
+        buffer.putByte(11, 2)
+        service.onSessionMessage(session, 0, buffer, 3, 17, mock(Header::class.java))
+        assertEquals(1L, responseCount)
+        assertEquals(1.toByte(), responseStatus)
+        command(1)
+        assertEquals(2L, responseCount)
     }
 
     private fun restore(count: Long) {

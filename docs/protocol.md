@@ -35,27 +35,36 @@ commands or rejected submissions return a message with `type: "error"` and a
 
 ## Cluster messages and snapshots
 
-The application protocol is explicit binary encoding, not generated SBE codecs:
+Taxi now defines arithmetic command and result payloads. Generated encoders and
+decoders implement the application protocol; Aeron carries those bytes as the
+application payload after its own session header. See [Taxi integration](taxi-integration.md)
+for setup, schema locations, numeric encoding, and compatibility policy.
 
-| Payload        | Encoding                                                            |
-| -------------- | ------------------------------------------------------------------- |
-| Legacy command | One byte: `0` for get, `1` for increment, `2` for decrement |
-| Arithmetic command | One opcode byte (`3` add, `4` subtract, `5` multiply, `6` divide), then a signed 64-bit quantity in little-endian order |
-| Response       | One status byte followed by the 64-bit count in little-endian order |
-| Snapshot state | The 64-bit count in little-endian order                             |
+| Payload | Encoding |
+| --- | --- |
+| GET | One byte: `0` |
+| Generated arithmetic command | Eight-byte LE SBE header (block length 9, template 101 Add / 102 Subtract / 103 Multiply / 104 Divide, schema 2, version 0), then nine-byte full-range quantity |
+| Generated result | Eight-byte LE SBE header (block length 17, template 105, schema 2, version 0), int64 status, nine-byte full-range count |
+| Legacy command (still readable) | One byte: `0` get, `1` increment, `2` decrement; or one byte `3` add / `4` subtract / `5` multiply / `6` divide followed by LE int64 quantity |
+| Legacy result | One status byte followed by LE int64 count |
+| Snapshot | The existing raw LE int64 count (unchanged) |
 
-Status bytes are `0` for OK, `1` for invalid command, `2` for overflow, and `3`
-for division by zero. Command lengths must be exactly one byte for legacy
-commands and nine bytes for arithmetic. `Long.MIN_VALUE / -1` reports overflow.
+A full-range Long is tag 0 plus its int64 value, or tag 1 plus raw value 0 for
+Long.MIN_VALUE. Noncanonical tags/values are invalid. Status codes remain 0 OK,
+1 invalid command, 2 overflow, 3 division by zero. Generated results use int64
+status to stay within the generator's evolvable fixed-field profile.
 
-Existing command opcodes, response layout, and snapshots are unchanged, so stored
-legacy commands can still replay. Deploy the updated cluster service before
-sending arithmetic commands; older services reject the new opcodes. Existing
-clients can continue sending legacy commands, but must understand the additional
-status if receiving arithmetic results. No data reset or snapshot migration is
-required. Mixed service versions must not process arithmetic commands.
-The service implements snapshot writing and restoration callbacks. A real
-snapshot/restart cycle has not yet been verified.
+The service selects legacy replies for legacy command lengths (1 or 9), generated
+replies otherwise. New arithmetic commands are 17 bytes and generated results are
+25 bytes. The adapter validates exact lengths, schema/template identity, and version
+0. It never infers payload length from the surrounding buffer capacity.
+
+Legacy formats are retained for recorded command replay and older gateways. Upgrade
+the service before the gateway; older services reject generated messages. A service
+downgrade cannot replay a log containing generated commands. Do not mix service
+versions while processing them. No snapshot migration or data reset is required.
+Real restart replay is verified separately from snapshot callbacks; multi-node
+failover and a real snapshot/restart cycle have not been verified.
 
 ## Connections and delivery
 

@@ -3,7 +3,7 @@ package com.example.clusterstatemachine.gateway
 import com.example.clusterstatemachine.protocol.CounterCommand
 import com.example.clusterstatemachine.protocol.CounterMessage
 import com.example.clusterstatemachine.protocol.CounterRequest
-import com.example.clusterstatemachine.protocol.CounterStatus
+import com.example.clusterstatemachine.protocol.CounterWireCodec
 import io.aeron.cluster.client.AeronCluster
 import io.aeron.cluster.client.EgressListener
 import io.aeron.driver.MediaDriver
@@ -13,7 +13,6 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
 import java.io.File
-import java.nio.ByteOrder
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.ExecutorService
@@ -86,16 +85,21 @@ class CounterClusterClient(
 
                 val egressListener =
                     EgressListener { _, _, buffer, offset, length, _ ->
-                        if (length == RESPONSE_LENGTH) {
-                            val status = CounterStatus.fromCode(buffer.getByte(offset))
-                            val count = buffer.getLong(offset + 1, ByteOrder.LITTLE_ENDIAN)
-                            val result = CounterMessage(status, count)
+                        val result =
+                            try {
+                                CounterWireCodec.decodeResult(buffer, offset, length)
+                            } catch (exception: IllegalArgumentException) {
+                                logger.warn("Ignoring invalid counter response: {}", exception.message)
+                                null
+                            } catch (exception: IndexOutOfBoundsException) {
+                                logger.warn("Ignoring truncated counter response: {}", exception.message)
+                                null
+                            }
+                        if (result != null) {
                             updateListeners.forEach { listener ->
                                 runCatching { listener(result) }
                                     .onFailure { logger.warn("Counter update listener failed", it) }
                             }
-                        } else {
-                            logger.warn("Ignoring invalid counter response: {} bytes", length)
                         }
                     }
 
@@ -114,7 +118,7 @@ class CounterClusterClient(
                 commands.offer(CounterRequest(CounterCommand.GET))
                 connected.set(true)
                 var lastKeepAlive = System.nanoTime()
-                val commandBuffer = ExpandableArrayBuffer(1 + Long.SIZE_BYTES)
+                val commandBuffer = ExpandableArrayBuffer(CounterWireCodec.ARITHMETIC_LENGTH)
                 val idleStrategy = org.agrona.concurrent.BackoffIdleStrategy()
                 while (running.get() && !clusterClient.isClosed) {
                     val now = System.nanoTime()
@@ -123,9 +127,7 @@ class CounterClusterClient(
                     }
                     val command = commands.poll()
                     if (command != null) {
-                        commandBuffer.putByte(0, command.command.code)
-                        val commandLength = if (command.quantity != null) 1 + Long.SIZE_BYTES else 1
-                        command.quantity?.let { commandBuffer.putLong(1, it, ByteOrder.LITTLE_ENDIAN) }
+                        val commandLength = CounterWireCodec.encodeRequest(commandBuffer, 0, command)
                         var result = clusterClient.offer(commandBuffer, 0, commandLength)
                         val offerDeadline = System.nanoTime() + OFFER_TIMEOUT_NS
                         while (result < 0 && running.get() && !clusterClient.isClosed) {
@@ -170,7 +172,6 @@ class CounterClusterClient(
     companion object {
         private val KEEP_ALIVE_INTERVAL_NS = TimeUnit.SECONDS.toNanos(1)
         private val OFFER_TIMEOUT_NS = TimeUnit.SECONDS.toNanos(5)
-        private const val RESPONSE_LENGTH = 1 + Long.SIZE_BYTES
         private const val COMMAND_QUEUE_CAPACITY = 1024
     }
 }
