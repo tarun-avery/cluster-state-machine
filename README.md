@@ -104,6 +104,15 @@ All three commands keep running. Gradle showing `EXECUTING` is normal after
 startup. Stop each process with **Ctrl+C**, starting with the frontend, then the
 gateway, then the cluster.
 
+## IntelliJ launch and debugging
+
+Shared configurations are in `.run/`. After reloading the Gradle project, choose
+**Run - Taxi x Cluster web app** to launch the cluster, gateway and frontend.
+Open <http://127.0.0.1:5173>. Use **Debug - serialization walkthrough** with the
+Debug button to step through the real generated codecs and state machine without
+live transport timeouts. See [IntelliJ instructions](docs/intellij.md) and the
+[GitHub-rendered flow diagrams](docs/flow.md).
+
 ## Development
 
 Build and verify the project:

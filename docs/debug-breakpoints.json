@@ -1,0 +1,74 @@
+[
+  {
+    "repo": "C",
+    "path": "backend/counter-protocol/src/main/kotlin/com/example/clusterstatemachine/protocol/CounterWireCodec.kt",
+    "line": 28,
+    "anchor": "val quantity = request.quantity ?: 1L",
+    "label": "Owned request",
+    "why": "Inspect request.command, request.quantity and the body offset before encoding."
+  },
+  {
+    "repo": "C",
+    "path": "backend/counter-protocol/build/generated/sources/taxi/main/kotlin/com/example/clusterstatemachine/messages/MultiplyCodec.kt",
+    "line": 30,
+    "anchor": "buffer.putByte(offset + 0",
+    "label": "Generated encoder",
+    "why": "During Multiply, inspect value, buffer and offset; step over the tag and raw-value writes."
+  },
+  {
+    "repo": "C",
+    "path": "backend/counter-protocol/build/generated/sources/taxi/main/kotlin/com/example/clusterstatemachine/messages/MultiplyCodec.kt",
+    "line": 80,
+    "anchor": "val tag = buffer.getByte(offset + 0",
+    "label": "Generated decoder",
+    "why": "Inspect the borrowed byte buffer and recover the quantity from tag/raw data."
+  },
+  {
+    "repo": "C",
+    "path": "backend/cluster/src/main/kotlin/com/example/clusterstatemachine/cluster/CounterClusteredService.kt",
+    "line": 131,
+    "anchor": "Math.multiplyExact(count, quantity)",
+    "label": "State transition",
+    "why": "During Multiply, inspect count=20 and quantity=3; step over to compute 60."
+  },
+  {
+    "repo": "C",
+    "path": "backend/counter-protocol/src/main/kotlin/com/example/clusterstatemachine/protocol/CounterWireCodec.kt",
+    "line": 109,
+    "anchor": "CounterResultEncoder().wrapAndApplyHeader",
+    "label": "Result encoding",
+    "why": "Inspect message.status and message.count before writing the generated reply."
+  },
+  {
+    "repo": "C",
+    "path": "backend/counter-protocol/src/main/kotlin/com/example/clusterstatemachine/protocol/CounterWireCodec.kt",
+    "line": 124,
+    "anchor": "val decoder = CounterResultDecoder()",
+    "label": "Result decoding",
+    "why": "Inspect the received payload and watch it become an owned CounterMessage."
+  },
+  {
+    "repo": "C",
+    "path": "backend/cluster/src/test/kotlin/com/example/clusterstatemachine/cluster/SerializationWalkthroughTest.kt",
+    "line": 59,
+    "anchor": "val result = assertNotNull(received)",
+    "label": "Owned result",
+    "why": "Inspect the completed result after the callback has returned."
+  },
+  {
+    "repo": "G",
+    "path": "src/main/kotlin/com/example/taxicodegen/Main.kt",
+    "line": 29,
+    "anchor": "val result = TaxiCompilerAdapter().compile",
+    "label": "Taxi compilation",
+    "why": "With Taxi generate config in Debug, inspect the input source and compiled DomainSchema."
+  },
+  {
+    "repo": "G",
+    "path": "src/main/kotlin/com/example/taxicodegen/CodecGenerator.kt",
+    "line": 5,
+    "anchor": "val nameErrors = validateCodecNames(schema)",
+    "label": "Kotlin generation",
+    "why": "With Taxi generate config in Debug, inspect the schema before fixed-profile code emission."
+  }
+]

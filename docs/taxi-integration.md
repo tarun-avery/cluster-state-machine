@@ -22,7 +22,7 @@ Check out the commit listed as `taxiCodegenRevision` in `gradle.properties` in t
 generator repository before building. The current pin is:
 
 ```sh
-git -C ../taxi-kotlin-codegen checkout 593facd9c61d041d54b1b4be7817e807a5e079f2
+git -C ../taxi-kotlin-codegen checkout de07792d4965cd8b585cf974e6ae6d790b039be5
 ```
 
 For an existing checkout, preserve changes before switching revisions. Git must

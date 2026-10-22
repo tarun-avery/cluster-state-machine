@@ -53,3 +53,21 @@ subprojects {
 tasks.named<Delete>("clean") {
     delete("frontend/dist", "frontend/.vite", "frontend/node_modules/.vite")
 }
+
+// Community Edition can launch the frontend through Gradle without a JavaScript plugin.
+tasks.register<Exec>("frontendDev") {
+    group = "application"
+    description = "Serve the counter UI at http://127.0.0.1:5173."
+    workingDir(rootProject.projectDir)
+    val localBin = File(System.getProperty("user.home"), ".local/bin")
+    val pnpm =
+        providers.gradleProperty("pnpmExecutable").getOrElse(
+            File(localBin, "pnpm").takeIf { it.canExecute() }?.absolutePath ?: "pnpm",
+        )
+    val node =
+        providers.gradleProperty("nodeExecutable").orNull?.let(::File)
+            ?: File(localBin, "node").takeIf { it.canExecute() }
+    val extraPath = listOfNotNull(node?.canonicalFile?.parent, File(pnpm).absoluteFile.parent, localBin.absolutePath)
+    environment("PATH", (extraPath + System.getenv("PATH").orEmpty()).joinToString(File.pathSeparator))
+    commandLine(pnpm, "--dir", "frontend", "dev", "--host", "127.0.0.1", "--port", "5173", "--strictPort")
+}

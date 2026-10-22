@@ -1,0 +1,8 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Run - Taxi x Cluster web app" type="CompoundRunConfigurationType">
+    <toRun name="Cluster - counter service" type="GradleRunConfiguration" />
+    <toRun name="Gateway - WebSocket bridge" type="GradleRunConfiguration" />
+    <toRun name="Frontend - web counter" type="GradleRunConfiguration" />
+    <method v="2" />
+  </configuration>
+</component>
