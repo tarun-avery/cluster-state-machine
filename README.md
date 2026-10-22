@@ -14,8 +14,9 @@ The backend modules live in `backend/`: `cluster` hosts the single-node cluster,
 from Taxi using the pinned Kotlin generator.
 The React app lives in `frontend/`.
 
-**Status:** single-node development demo. Multi-node replication and leader
-failover have not been exercised.
+**Status:** the Taxi-generated arithmetic protocol is integrated and tested,
+including single-node recorded-log replay across restarts. Multi-node replication
+and leader failover have not been exercised.
 
 ## Requirements
 
@@ -33,16 +34,36 @@ npm install --global pnpm@11.25.0
 
 ## Run locally
 
-Clone the repository and install frontend dependencies:
+Clone the repository:
 
 ```sh
 git clone https://github.com/tarun-avery/cluster-state-machine.git
 cd cluster-state-machine
-pnpm --dir frontend install --frozen-lockfile
 ```
 
 If you already have the project, open its root directory instead of cloning it
-again. In IntelliJ, load or reload the root Gradle project.
+again. Follow [Taxi integration setup](docs/taxi-integration.md#setup) to prepare
+the sibling generator at the exact revision in `gradle.properties`. The build
+checks that revision and rejects uncommitted generator build-input changes;
+README and `docs/` edits are allowed. These integration commits must be available
+in both repositories; they have not been pushed automatically.
+
+Install the frontend dependencies and verify the shared schema:
+
+```sh
+pnpm --dir frontend install --frozen-lockfile
+./gradlew :counter-protocol:checkCounterSchema
+```
+
+In IntelliJ, load or reload the root Gradle project using JDK 25. Kotlin compiler
+and runtime libraries are pinned to 2.2.21 for the installed IntelliJ IDEA 2025.2
+Kotlin tooling. Gradle enforces that library alignment, including dependencies
+managed by Spring Boot. If an already-open IDE reports an unsupported Kotlin
+binary format, open **View > Tool Windows > Gradle**, then click **Reload All Gradle Projects**
+(or **Sync All Gradle Projects**) to import these versions. Avoid the
+banner's blanket downgrade action; keep version changes in the Gradle build.
+A project can control dependencies, but cannot upgrade the IDE's bundled Kotlin
+analyser automatically.
 
 Start these processes in separate terminals, each from the repository root:
 
@@ -52,7 +73,8 @@ Start these processes in separate terminals, each from the repository root:
 ./gradlew :cluster:bootRun
 ```
 
-Wait for `Started ClusterApplicationKt`.
+Wait for `Started ClusterApplicationKt`. Start the cluster before the gateway.
+The first run also generates and compiles the shared Taxi codecs.
 
 **2. Gateway**
 

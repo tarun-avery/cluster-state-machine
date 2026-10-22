@@ -10,6 +10,7 @@ group = "com.example.clusterstatemachine"
 version = "0.1.0-SNAPSHOT"
 
 val ktlintVersion = libs.versions.ktlintEngine.get()
+val kotlinVersion = libs.versions.kotlin.get()
 
 allprojects {
     apply(plugin = "org.jlleitschuh.gradle.ktlint")
@@ -21,6 +22,12 @@ allprojects {
 subprojects {
     group = rootProject.group
     version = rootProject.version
+
+    // Keep imported Kotlin libraries compatible with the compiler and IntelliJ 2025.2.
+    // Spring Boot's BOM otherwise selects a newer Kotlin runtime than the IDE supports.
+    plugins.withId("org.jetbrains.kotlin.jvm") {
+        dependencies.add("implementation", dependencies.enforcedPlatform("org.jetbrains.kotlin:kotlin-bom:$kotlinVersion"))
+    }
 
     // Aeron/Agrona require access to Unsafe on modern JDKs.
     tasks.withType<JavaExec>().configureEach {

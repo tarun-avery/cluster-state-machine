@@ -3,7 +3,8 @@
 The counter owns its schema in `backend/counter-protocol/src/main/taxi/counter.taxi`.
 The sibling `taxi-kotlin-codegen` project supplies the reusable compiler/generator.
 Its version and exact commit are pinned in root `gradle.properties`. Gradle checks
-that the checkout matches that revision and is clean, then includes it as a build.
+that the checkout matches that revision and its build inputs are clean, then
+includes it as a build. README and `docs/` edits are allowed.
 Generated messages live only under `backend/counter-protocol/build/` and are never
 edited or committed. Taxi/compiler libraries are build-time dependencies only.
 
@@ -21,11 +22,11 @@ Check out the commit listed as `taxiCodegenRevision` in `gradle.properties` in t
 generator repository before building. The current pin is:
 
 ```sh
-git -C ../taxi-kotlin-codegen checkout 74cfec57c6c91882bd3d0717dd4f6927e23e8067
+git -C ../taxi-kotlin-codegen checkout 593facd9c61d041d54b1b4be7817e807a5e079f2
 ```
 
 For an existing checkout, preserve changes before switching revisions. Git must
-be available during Gradle configuration for the revision and clean-checkout checks.
+be available during Gradle configuration for the revision and clean-build-input checks.
 The revisions are local until explicitly pushed; another machine needs those commits.
 
 From the cluster repository root:

@@ -1,5 +1,5 @@
 [versions]
-kotlin = "2.4.21"
+kotlin = "2.2.21"
 spring-boot = "4.1.1"
 aeron = "1.53.3"
 vertx = "5.2.1"

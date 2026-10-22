@@ -44,6 +44,11 @@ the counter; do not add banking or trading logic.
   to Vert.x safely. Do not block Vert.x event-loop threads.
 - Keep versions pinned and reproducible. Use the Gradle wrapper and the
   frontend package lockfile.
+- Keep the Kotlin compiler and runtime libraries aligned to the version catalog.
+  The current IntelliJ IDEA 2025.2 tooling needs Kotlin 2.2-compatible metadata.
+  Retain the Kotlin BOM alignment so Spring Boot cannot silently select newer
+  Kotlin libraries. Check IDE compatibility and resolved runtime dependencies
+  before changing the Kotlin version.
 - Never commit credentials, local IDE state, build output, or runtime cluster
   data.
 - Use a neutral project namespace for source packages and build coordinates.

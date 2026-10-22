@@ -36,11 +36,13 @@ val generatorChanges =
     providers
         .exec {
             workingDir(generatorDirectory)
-            commandLine("git", "status", "--porcelain", "--untracked-files=normal")
+            commandLine("git", "status", "--porcelain", "--untracked-files=normal", "--", ".", ":(exclude)README.md", ":(exclude)docs")
         }.standardOutput.asText
         .get()
         .trim()
-require(generatorChanges.isEmpty()) { "Taxi generator checkout must be clean for reproducible generation." }
+require(generatorChanges.isEmpty()) {
+    "Taxi generator build inputs must be clean for reproducible generation (README/docs edits are allowed)."
+}
 includeBuild(generatorDirectory)
 
 rootProject.name = "cluster-state-machine"
