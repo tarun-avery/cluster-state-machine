@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import HistoryPanel from "./HistoryPanel.jsx";
 
 const socketUrl =
   import.meta.env.VITE_GATEWAY_WS_URL ?? "ws://127.0.0.1:8081/ws";
@@ -155,6 +156,7 @@ export default function App() {
           </p>
         )}
       </section>
+      <HistoryPanel liveCount={count} />
     </main>
   );
 }

@@ -9,15 +9,22 @@ import io.vertx.core.json.JsonObject
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Component
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.time.Duration
 import java.util.concurrent.CopyOnWriteArraySet
 
 @Component
 class VertxWebSocketServer(
     private val clusterClient: CounterClusterClient,
     @Value("\${gateway.websocket.port:8081}") private val port: Int,
+    @Value("\${history.url:http://127.0.0.1:8082}") private val historyUrl: String = "http://127.0.0.1:8082",
 ) : AutoCloseable {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val vertx = Vertx.vertx()
+    private val historyHttp = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(2)).build()
     private val updateContext = vertx.getOrCreateContext()
     private val sockets = CopyOnWriteArraySet<io.vertx.core.http.ServerWebSocket>()
     private val updateListener: (CounterMessage) -> Unit = { message ->
@@ -38,7 +45,41 @@ class VertxWebSocketServer(
         clusterClient.addUpdateListener(updateListener)
         vertx
             .createHttpServer()
-            .webSocketHandler { socket ->
+            .requestHandler { request ->
+                val origin = request.getHeader("Origin")
+                if (origin in setOf("http://127.0.0.1:5173", "http://localhost:5173")) {
+                    request.response().putHeader("access-control-allow-origin", origin).putHeader("vary", "Origin")
+                }
+                if (request.path() != "/history" || request.method().name() != "GET") {
+                    request.response().setStatusCode(404).end()
+                } else {
+                    val query = request.query()?.let { "?$it" }.orEmpty()
+                    val upstream =
+                        HttpRequest
+                            .newBuilder(URI("$historyUrl/history$query"))
+                            .timeout(Duration.ofSeconds(5))
+                            .GET()
+                            .build()
+                    historyHttp.sendAsync(upstream, HttpResponse.BodyHandlers.ofString()).whenComplete { reply, failure ->
+                        updateContext.runOnContext {
+                            if (failure != null) {
+                                request
+                                    .response()
+                                    .setStatusCode(503)
+                                    .putHeader("content-type", "application/json")
+                                    .end(JsonObject().put("error", "History service unavailable").encode())
+                            } else {
+                                request
+                                    .response()
+                                    .setStatusCode(
+                                        reply.statusCode(),
+                                    ).putHeader("content-type", "application/json")
+                                    .end(reply.body())
+                            }
+                        }
+                    }
+                }
+            }.webSocketHandler { socket ->
                 if (socket.path() != "/ws") {
                     socket.close()
                     return@webSocketHandler
@@ -62,6 +103,7 @@ class VertxWebSocketServer(
 
     override fun close() {
         clusterClient.removeUpdateListener(updateListener)
+        historyHttp.close()
         vertx
             .close()
             .toCompletionStage()
