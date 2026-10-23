@@ -208,6 +208,223 @@ class TaxiClusterIntegrationTest {
         }
     }
 
+    @Test
+    fun `committed commands recover after process interruption before and after audit offer`() {
+        for (phase in listOf("before", "after")) {
+            val port = availableClusterPorts()
+            val root = directory.resolve("interrupted-$phase").toFile()
+            val output = directory.resolve("fixture-$phase.log").toFile()
+            val process =
+                ProcessBuilder(
+                    "${System.getProperty("java.home")}/bin/java",
+                    "--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED",
+                    "-cp",
+                    System.getProperty("fixture.classpath"),
+                    "com.example.clusterstatemachine.cluster.AuditInterruptionFixtureKt",
+                    root.absolutePath,
+                    port.toString(),
+                    phase,
+                ).redirectErrorStream(true).redirectOutput(output).start()
+            try {
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15)
+                while (!output.readText().contains("FIXTURE_READY")) {
+                    check(process.isAlive && System.nanoTime() < deadline) { output.readText() }
+                    Thread.sleep(10)
+                }
+                runCatching {
+                    LegacyClient("127.0.0.1:${port + 2}", directory.resolve("interrupt-client-$phase")).use { it.send(3, 20) }
+                }
+                check(process.waitFor(15, TimeUnit.SECONDS))
+                assertEquals(77, process.exitValue())
+                // Wait until the terminated driver's heartbeat expires, without deleting live driver files.
+                Thread.sleep(11000)
+                val recovered = java.util.concurrent.CopyOnWriteArrayList<AuditPair>()
+                val service =
+                    object : CounterClusteredService() {
+                        override fun onSessionMessage(
+                            session: io.aeron.cluster.service.ClientSession?,
+                            timestamp: Long,
+                            buffer: org.agrona.DirectBuffer,
+                            offset: Int,
+                            length: Int,
+                            header: io.aeron.logbuffer.Header,
+                        ) {
+                            if (session == null &&
+                                AuditPairCodec.isAudit(buffer, offset, length)
+                            ) {
+                                recovered.add(AuditPairCodec.decode(buffer, offset, length))
+                            }
+                            super.onSessionMessage(session, timestamp, buffer, offset, length, header)
+                        }
+                    }
+                SingleNodeClusterRuntime(service, port, root).use {
+                    LegacyClient("127.0.0.1:${port + 2}", directory.resolve("recover-client-$phase")).use { client ->
+                        assertEquals(20, client.send(0).count)
+                    }
+                    val auditDeadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+                    while (recovered.none { it.request.size == 9 && it.request[0] == 3.toByte() }) {
+                        check(System.nanoTime() < auditDeadline) { "Committed result was not recovered after $phase interruption" }
+                        Thread.sleep(1)
+                    }
+                    val pair = recovered.single { it.request.size == 9 && it.request[0] == 3.toByte() }
+                    assertEquals(
+                        20,
+                        CounterWireCodec.decodeResult(org.agrona.concurrent.UnsafeBuffer(pair.result), 0, pair.result.size).count,
+                    )
+                    assertEquals(1, pair.captureKind)
+                }
+            } finally {
+                if (process.isAlive) process.destroyForcibly().waitFor()
+            }
+        }
+    }
+
+    @Test
+    fun `real snapshot and restart preserve state and subsequent audit dispatch`() {
+        val port = availableClusterPorts()
+        val root = directory.resolve("snapshot-cluster").toFile()
+        SingleNodeClusterRuntime(CounterClusteredService(), port, root).use {
+            LegacyClient("127.0.0.1:${port + 2}", directory.resolve("snapshot-client")).use { client ->
+                assertEquals(20, client.send(3, 20).count)
+                io.aeron.Aeron
+                    .connect(
+                        io.aeron.Aeron
+                            .Context()
+                            .aeronDirectoryName(root.resolve("aeron").absolutePath),
+                    ).use { aeron ->
+                        val toggle =
+                            io.aeron.cluster.ClusterControl
+                                .findControlToggle(aeron.countersReader(), 0)
+                        check(
+                            io.aeron.cluster.ClusterControl.ToggleState.SNAPSHOT
+                                .toggle(toggle),
+                        )
+                        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+                        while (true) {
+                            val snapshot =
+                                io.aeron.cluster
+                                    .RecordingLog(root.resolve("cluster"), false)
+                                    .use { it.getLatestSnapshot(0) }
+                            if (snapshot != null) break
+                            check(System.nanoTime() < deadline)
+                            Thread.sleep(5)
+                        }
+                    }
+            }
+        }
+        SingleNodeClusterRuntime(CounterClusteredService(), port, root).use {
+            LegacyClient("127.0.0.1:${port + 2}", directory.resolve("snapshot-after")).use { client ->
+                assertEquals(20, client.send(0).count)
+                assertEquals(60, client.send(5, 3).count)
+            }
+        }
+    }
+
+    @Test
+    fun `all generated operations project matching pairs through public Archive into PostgreSQL`() {
+        val settings =
+            com.example.clusterstatemachine.protocol
+                .LocalSettings()
+        val url = "jdbc:postgresql://127.0.0.1:${settings.get("POSTGRES_PORT", "5432")}/counter_history"
+        val password = settings.required("POSTGRES_PASSWORD")
+        val schema =
+            "flow_" +
+                java.util.UUID
+                    .randomUUID()
+                    .toString()
+                    .replace("-", "")
+        java.sql.DriverManager.getConnection(url, "counter", password).use { admin ->
+            admin.createStatement().use { it.execute("CREATE SCHEMA $schema") }
+            try {
+                val port = availableClusterPorts()
+                val root = directory.resolve("flow-cluster").toFile()
+                val publicRoot = directory.resolve("flow-public").toFile()
+                SingleNodeClusterRuntime(CounterClusteredService(), port, root).use {
+                    com.example.clusterstatemachine.archive.PublicArchiveRuntime(publicRoot, DatagramSocket(0).use { it.localPort }).use {
+                        val messages = LinkedBlockingQueue<CounterMessage>()
+                        CounterClusterClient("127.0.0.1:${port + 2}", directory.resolve("flow-client").toString()).use { client ->
+                            awaitConnected(client)
+                            client.addUpdateListener { messages.add(it) }
+                            val operations =
+                                listOf(
+                                    Triple(com.example.clusterstatemachine.protocol.CounterCommand.ADD, 20L, 20L),
+                                    Triple(com.example.clusterstatemachine.protocol.CounterCommand.MULTIPLY, 3L, 60L),
+                                    Triple(com.example.clusterstatemachine.protocol.CounterCommand.SUBTRACT, 10L, 50L),
+                                    Triple(com.example.clusterstatemachine.protocol.CounterCommand.DIVIDE, 4L, 12L),
+                                    Triple(com.example.clusterstatemachine.protocol.CounterCommand.DIVIDE, 0L, 12L),
+                                )
+                            for ((command, quantity, count) in operations) {
+                                check(
+                                    client.submit(
+                                        com.example.clusterstatemachine.protocol
+                                            .CounterRequest(command, quantity),
+                                    ),
+                                )
+                                assertEquals(count, assertNotNull(messages.poll(5, TimeUnit.SECONDS)).count)
+                            }
+                        }
+                        LegacyClient("127.0.0.1:${port + 2}", directory.resolve("malformed-client")).use { client ->
+                            assertEquals(CounterMessage(CounterStatus.INVALID_COMMAND, 12), client.send(99))
+                        }
+                        com.example.clusterstatemachine.archive.ArchiveBridge(root, publicRoot).use { bridge ->
+                            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+                            var exported = 0
+                            while (exported <
+                                7
+                            ) {
+                                exported += bridge.exportCommitted()
+                                check(System.nanoTime() < deadline)
+                                Thread.sleep(1)
+                            }
+                        }
+                        io.aeron.Aeron
+                            .connect(
+                                io.aeron.Aeron
+                                    .Context()
+                                    .aeronDirectoryName(publicRoot.resolve("aeron").absolutePath),
+                            ).use { aeron ->
+                                com.example.clusterstatemachine.archive.archiveClient(aeron, "aeron:ipc?term-length=64k").use { archive ->
+                                    com.example.clusterstatemachine.history
+                                        .HistoryDatabase(
+                                            "$url?currentSchema=$schema",
+                                            "counter",
+                                            password,
+                                        ).use { database ->
+                                            val replay =
+                                                com.example.clusterstatemachine.history
+                                                    .HistoryReplay(database)
+                                            replay.catchUp(archive)
+                                            replay.catchUp(archive)
+                                            val rows =
+                                                database
+                                                    .page(100, null)
+                                                    .getJsonArray("items")
+                                                    .map { it as JsonObject }
+                                                    .filter {
+                                                        it.getString("operation") !in setOf("GET", "INVALID")
+                                                    }.reversed()
+                                            assertEquals(listOf("20", "60", "50", "12", "12"), rows.map { it.getString("count") })
+                                            assertEquals(
+                                                listOf("OK", "OK", "OK", "OK", "DIVISION_BY_ZERO"),
+                                                rows.map { it.getString("status") },
+                                            )
+                                            assertEquals(listOf("20", "3", "10", "4", "0"), rows.map { it.getString("quantity") })
+                                            val allRows = database.page(100, null).getJsonArray("items").map { it as JsonObject }
+                                            assertEquals(7, allRows.size)
+                                            val invalid = allRows.single { it.getString("operation") == "INVALID" }
+                                            assertEquals("INVALID_COMMAND", invalid.getString("status"))
+                                            assertEquals("12", invalid.getString("count"))
+                                        }
+                                }
+                            }
+                    }
+                }
+            } finally {
+                admin.createStatement().use { it.execute("DROP SCHEMA $schema CASCADE") }
+            }
+        }
+    }
+
     private fun assertCount(
         message: JsonObject,
         count: String,

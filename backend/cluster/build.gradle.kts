@@ -31,6 +31,7 @@ configurations[integrationTest.runtimeOnlyConfigurationName].extendsFrom(configu
 dependencies {
     add(integrationTest.implementationConfigurationName, project(":trading-gateway"))
     add(integrationTest.implementationConfigurationName, project(":archive-bridge"))
+    add(integrationTest.implementationConfigurationName, project(":history-service"))
     add(integrationTest.implementationConfigurationName, libs.vertx.web)
 }
 tasks.register<Test>("integrationTest") {
@@ -39,5 +40,7 @@ tasks.register<Test>("integrationTest") {
     testClassesDirs = integrationTest.output.classesDirs
     classpath = integrationTest.runtimeClasspath
     shouldRunAfter(tasks.test)
+    workingDir(rootProject.projectDir)
     systemProperty("junit.jupiter.execution.timeout.default", "90 s")
+    systemProperty("fixture.classpath", integrationTest.runtimeClasspath.asPath)
 }

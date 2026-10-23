@@ -8,6 +8,7 @@ import com.example.clusterstatemachine.protocol.CounterStatus
 import com.example.clusterstatemachine.protocol.CounterWireCodec
 import io.aeron.ExclusivePublication
 import io.aeron.Image
+import io.aeron.Publication
 import io.aeron.cluster.codecs.CloseReason
 import io.aeron.cluster.service.ClientSession
 import io.aeron.cluster.service.Cluster
@@ -103,7 +104,14 @@ open class CounterClusteredService : ClusteredService {
         val idle = idleStrategy!!
         // Cluster service-message tracking recovers this offer during log replay.
         // Never involve the gateway, external Archive or SQL in this callback.
-        while (cluster!!.offer(auditBuffer, 0, audit.size) < 0) idle.idle()
+        while (true) {
+            val offered = cluster!!.offer(auditBuffer, 0, audit.size)
+            if (offered >= 0) break
+            check(
+                offered != Publication.CLOSED && offered != Publication.MAX_POSITION_EXCEEDED,
+            ) { "Cluster audit publication cannot progress" }
+            idle.idle()
+        }
         if (session != null) offerResponse(session, response, responseLength)
     }
 
@@ -180,7 +188,10 @@ open class CounterClusteredService : ClusteredService {
     ) {
         val idle = idleStrategy ?: return
         idle.reset()
-        while (session.offer(response, 0, length) < 0) {
+        while (true) {
+            val offered = session.offer(response, 0, length)
+            if (offered >= 0 || session.isClosing || offered == Publication.CLOSED || offered == Publication.NOT_CONNECTED) return
+            check(offered != Publication.MAX_POSITION_EXCEEDED) { "Client publication exhausted" }
             idle.idle()
         }
     }
