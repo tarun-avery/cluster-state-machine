@@ -52,3 +52,6 @@ include("counter-protocol", "cluster", "trading-gateway")
 project(":cluster").projectDir = file("backend/cluster")
 project(":counter-protocol").projectDir = file("backend/counter-protocol")
 project(":trading-gateway").projectDir = file("backend/trading-gateway")
+
+include("history-service")
+project(":history-service").projectDir = file("backend/history-service")
