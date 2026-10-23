@@ -151,6 +151,63 @@ class TaxiClusterIntegrationTest {
         }
     }
 
+    @Test
+    fun `public Archive records exact pairs and checkpoint loss safely reexports`() {
+        val port = availableClusterPorts()
+        val root = directory.resolve("public-test").toFile()
+        val publicRoot = directory.resolve("public-recording").toFile()
+        SingleNodeClusterRuntime(CounterClusteredService(), port, root).use {
+            com.example.clusterstatemachine.archive.PublicArchiveRuntime(publicRoot, DatagramSocket(0).use { it.localPort }).use {
+                LegacyClient("127.0.0.1:${port + 2}", directory.resolve("public-client")).use { client ->
+                    assertEquals(20, client.send(3, 20).count)
+                    assertEquals(CounterStatus.DIVISION_BY_ZERO, client.send(6, 0).status)
+                }
+                var exported = 0
+                com.example.clusterstatemachine.archive.ArchiveBridge(root, publicRoot).use { bridge ->
+                    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+                    while (exported < 2) {
+                        exported += bridge.exportCommitted()
+                        check(System.nanoTime() < deadline)
+                        Thread.sleep(1)
+                    }
+                }
+                // Simulate interruption after recording but before its checkpoint survived.
+                publicRoot.resolve("checkpoints").listFiles()!!.forEach { it.delete() }
+                com.example.clusterstatemachine.archive.ArchiveBridge(root, publicRoot).use { bridge ->
+                    assertEquals(2, bridge.exportCommitted())
+                }
+                io.aeron.Aeron
+                    .connect(
+                        io.aeron.Aeron
+                            .Context()
+                            .aeronDirectoryName(publicRoot.resolve("aeron").absolutePath),
+                    ).use { aeron ->
+                        com.example.clusterstatemachine.archive.archiveClient(aeron, "aeron:ipc?term-length=64k").use { archive ->
+                            val pairs = mutableListOf<AuditPair>()
+                            for (id in com.example.clusterstatemachine.archive.recordingIds(
+                                archive,
+                                com.example.clusterstatemachine.archive.PUBLIC_STREAM_ID,
+                            )) {
+                                com.example.clusterstatemachine.archive.replayRange(
+                                    archive,
+                                    id,
+                                    archive.getStartPosition(id),
+                                    archive.getMaxRecordedPosition(id),
+                                    19403,
+                                ) { buffer, offset, length, _ ->
+                                    pairs.add(AuditPairCodec.decode(buffer, offset, length))
+                                }
+                            }
+                            assertEquals(4, pairs.size)
+                            assertEquals(pairs[0].commandPosition, pairs[2].commandPosition)
+                            kotlin.test.assertContentEquals(pairs[0].request, pairs[2].request)
+                            kotlin.test.assertContentEquals(pairs[0].result, pairs[2].result)
+                        }
+                    }
+            }
+        }
+    }
+
     private fun assertCount(
         message: JsonObject,
         count: String,

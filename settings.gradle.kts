@@ -53,5 +53,6 @@ project(":cluster").projectDir = file("backend/cluster")
 project(":counter-protocol").projectDir = file("backend/counter-protocol")
 project(":trading-gateway").projectDir = file("backend/trading-gateway")
 
-include("history-service")
+include("history-service", "archive-bridge")
 project(":history-service").projectDir = file("backend/history-service")
+project(":archive-bridge").projectDir = file("backend/archive-bridge")

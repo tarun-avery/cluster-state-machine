@@ -30,6 +30,7 @@ configurations[integrationTest.implementationConfigurationName].extendsFrom(conf
 configurations[integrationTest.runtimeOnlyConfigurationName].extendsFrom(configurations.testRuntimeOnly.get())
 dependencies {
     add(integrationTest.implementationConfigurationName, project(":trading-gateway"))
+    add(integrationTest.implementationConfigurationName, project(":archive-bridge"))
     add(integrationTest.implementationConfigurationName, libs.vertx.web)
 }
 tasks.register<Test>("integrationTest") {
