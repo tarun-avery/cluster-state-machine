@@ -32,9 +32,37 @@ class ArchiveBridge(
             source.close()
             throw failure
         }
-    private val target = Aeron.connect(Aeron.Context().aeronDirectoryName(File(publicRoot, "aeron").absolutePath))
-    private val targetArchive = archiveClient(target, "aeron:ipc?term-length=64k")
-    private val publication = targetArchive.addRecordedExclusivePublication(PUBLIC_CHANNEL, PUBLIC_STREAM_ID)
+    private val target =
+        try {
+            Aeron.connect(Aeron.Context().aeronDirectoryName(File(publicRoot, "aeron").absolutePath))
+        } catch (failure: Throwable) {
+            sourceArchive.close()
+            source.close()
+            throw failure
+        }
+    private val targetArchive =
+        try {
+            archiveClient(target, "aeron:ipc?term-length=64k")
+        } catch (
+            failure: Throwable,
+        ) {
+            target.close()
+            sourceArchive.close()
+            source.close()
+            throw failure
+        }
+    private val publication =
+        try {
+            targetArchive.addRecordedExclusivePublication(PUBLIC_CHANNEL, PUBLIC_STREAM_ID)
+        } catch (
+            failure: Throwable,
+        ) {
+            targetArchive.close()
+            target.close()
+            sourceArchive.close()
+            source.close()
+            throw failure
+        }
     private val sourceId = File(clusterRoot, "source-id").readText().trim()
     private val checkpoint = File(publicRoot, "checkpoints/$sourceId-v1.position")
     private var position = if (checkpoint.exists()) checkpoint.readText().trim().toLong() else 0L

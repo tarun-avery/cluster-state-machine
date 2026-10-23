@@ -1,6 +1,7 @@
 package com.example.clusterstatemachine.archive
 
 import io.aeron.Aeron
+import io.aeron.CommonContext
 import io.aeron.FragmentAssembler
 import io.aeron.archive.Archive
 import io.aeron.archive.client.AeronArchive
@@ -31,6 +32,10 @@ class PublicArchiveRuntime(
     root: File,
     port: Int = PUBLIC_CONTROL_PORT,
 ) : AutoCloseable {
+    init {
+        check(!CommonContext.isDriverActive(File(root, "aeron"), 10000) { _ -> }) { "Public Archive driver is already active" }
+    }
+
     val driver: MediaDriver =
         MediaDriver.launch(
             MediaDriver
@@ -94,14 +99,42 @@ fun replayRange(
     start: Long,
     end: Long,
     streamId: Int,
+    remote: Boolean = false,
     handler: FragmentHandler,
 ) {
     if (end <= start) return
-    archive.replay(id, start, end - start, "aeron:ipc", streamId).use { subscription ->
-        val assembler = FragmentAssembler(handler)
+    val subscription =
+        if (remote) {
+            archive.context().aeron().addSubscription("aeron:udp?endpoint=127.0.0.1:0", streamId)
+        } else {
+            archive.replay(id, start, end - start, "aeron:ipc", streamId)
+        }
+    subscription.use {
+        if (remote) {
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            var channel: String?
+            do {
+                channel = subscription.tryResolveChannelEndpointPort()
+                check(System.nanoTime() < deadline) { "Cannot resolve history replay endpoint" }
+                if (channel == null) Thread.sleep(1)
+            } while (channel == null)
+            archive.startReplay(id, start, end - start, channel, streamId)
+        }
+        var replayFailure: Throwable? = null
+        val assembler =
+            FragmentAssembler { buffer, offset, length, header ->
+                if (replayFailure == null) {
+                    try {
+                        handler.onFragment(buffer, offset, length, header)
+                    } catch (failure: Throwable) {
+                        replayFailure = failure
+                    }
+                }
+            }
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
         while (true) {
             val fragments = subscription.poll(assembler, 32)
+            replayFailure?.let { throw it }
             val image = if (subscription.imageCount() > 0) subscription.imageAtIndex(0) else null
             if (image != null && (image.position() >= end || image.isEndOfStream)) break
             check(System.nanoTime() < deadline) { "Archive replay timed out at recording $id ($start..$end)" }

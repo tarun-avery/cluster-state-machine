@@ -52,6 +52,9 @@ class HistoryDatabaseIntegrationTest {
                     db.insert(first, 4, 128)
                     db.insert(first, 4, 256)
                     assertEquals(256, db.resumePosition(4))
+                    db.insert(first, 5, 96)
+                    assertEquals(256, db.resumePosition(4))
+                    assertEquals(96, db.resumePosition(5))
                     assertEquals(1, db.page(100, null).getJsonArray("items").size())
                     assertEquals(
                         Long.MIN_VALUE.toString(),

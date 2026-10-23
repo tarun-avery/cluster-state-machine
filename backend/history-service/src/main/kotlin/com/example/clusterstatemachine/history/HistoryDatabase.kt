@@ -44,8 +44,8 @@ class HistoryDatabase(
 
     fun resumePosition(recordingId: Long): Long =
         pool.connection.use { connection ->
-            connection.prepareStatement("SELECT COALESCE(MAX(public_position),0) FROM outgoing WHERE public_recording_id=?").use {
-                it.setLong(1, recordingId)
+            connection.prepareStatement("SELECT COALESCE(MAX((replay_positions->>?)::bigint),0) FROM outgoing").use {
+                it.setString(1, recordingId.toString())
                 it.executeQuery().use { result ->
                     result.next()
                     result.getLong(1)
@@ -104,9 +104,10 @@ class HistoryDatabase(
                     }
                 connection
                     .prepareStatement(
-                        """INSERT INTO outgoing (source_id,command_position,status,count,protocol_schema_id,raw_result,public_recording_id,public_position)
-                       VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (source_id,command_position) DO UPDATE
-                       SET public_recording_id=EXCLUDED.public_recording_id,public_position=EXCLUDED.public_position
+                        """INSERT INTO outgoing (source_id,command_position,status,count,protocol_schema_id,raw_result,public_recording_id,public_position,replay_positions)
+                       VALUES (?,?,?,?,?,?,?,?,jsonb_build_object(?::text,?::bigint)) ON CONFLICT (source_id,command_position) DO UPDATE
+                       SET public_recording_id=EXCLUDED.public_recording_id,public_position=EXCLUDED.public_position,
+                           replay_positions=outgoing.replay_positions || EXCLUDED.replay_positions
                        WHERE outgoing.raw_result=EXCLUDED.raw_result""",
                     ).use {
                         it.setObject(1, pair.sourceId)
@@ -117,6 +118,8 @@ class HistoryDatabase(
                         it.setBytes(6, pair.result)
                         it.setLong(7, recordingId)
                         it.setLong(8, position)
+                        it.setString(9, recordingId.toString())
+                        it.setLong(10, position)
                         check(it.executeUpdate() == 1) { "Conflicting outgoing audit identity" }
                     }
                 connection.commit()

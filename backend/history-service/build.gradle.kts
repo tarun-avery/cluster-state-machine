@@ -4,9 +4,13 @@ plugins {
 }
 
 kotlin { compilerOptions { jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21) } }
-application { mainClass.set("com.example.clusterstatemachine.history.HistoryApplicationKt") }
+application {
+    applicationDefaultJvmArgs = listOf("--add-exports=java.base/jdk.internal.misc=ALL-UNNAMED")
+    mainClass.set("com.example.clusterstatemachine.history.HistoryApplicationKt")
+}
 dependencies {
     implementation(project(":counter-protocol"))
+    implementation(project(":archive-bridge"))
     implementation(platform(libs.spring.boot.bom))
     implementation(libs.aeron.cluster)
     implementation(libs.vertx.web)
