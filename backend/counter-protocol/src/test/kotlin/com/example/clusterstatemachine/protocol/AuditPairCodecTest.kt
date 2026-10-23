@@ -24,4 +24,15 @@ class AuditPairCodecTest {
         bytes[4] = 99
         assertFailsWith<IllegalArgumentException> { AuditPairCodec.decode(UnsafeBuffer(bytes), 0, bytes.size) }
     }
+
+    @Test
+    fun `previous audit version remains readable without asserting original capture`() {
+        val bytes = AuditPairCodec.encode(AuditPair(UUID(0, 1), 7, 8, 9, byteArrayOf(1), byteArrayOf(2), 1))
+        val legacy = bytes.copyOfRange(0, 56) + bytes.copyOfRange(60, bytes.size)
+        legacy[4] = 1
+        val decoded = AuditPairCodec.decode(UnsafeBuffer(legacy), 0, legacy.size)
+        assertEquals(0, decoded.captureKind)
+        assertContentEquals(byteArrayOf(1), decoded.request)
+        assertContentEquals(byteArrayOf(2), decoded.result)
+    }
 }

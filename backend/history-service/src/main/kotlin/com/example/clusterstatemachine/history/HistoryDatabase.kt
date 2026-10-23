@@ -65,8 +65,8 @@ class HistoryDatabase(
             try {
                 connection
                     .prepareStatement(
-                        """INSERT INTO incoming (source_id,command_position,cluster_timestamp,session_id,protocol_version,operation,quantity,raw_request)
-                       VALUES (?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING""",
+                        """INSERT INTO incoming (source_id,command_position,cluster_timestamp,session_id,protocol_schema_id,operation,quantity,raw_request,capture_kind)
+                       VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING""",
                     ).use {
                         it.setObject(1, pair.sourceId)
                         it.setLong(2, pair.commandPosition)
@@ -76,6 +76,14 @@ class HistoryDatabase(
                         it.setString(6, request?.command?.name)
                         it.setObject(7, request?.quantity)
                         it.setBytes(8, pair.request)
+                        it.setString(
+                            9,
+                            when (pair.captureKind) {
+                                1 -> "CAPTURED"
+                                2 -> "RECONSTRUCTED"
+                                else -> "UNCLASSIFIED"
+                            },
+                        )
                         it.executeUpdate()
                     }
                 // Conflicting duplicates are corruption, never silently discarded.
@@ -96,7 +104,7 @@ class HistoryDatabase(
                     }
                 connection
                     .prepareStatement(
-                        """INSERT INTO outgoing (source_id,command_position,status,count,protocol_version,raw_result,public_recording_id,public_position)
+                        """INSERT INTO outgoing (source_id,command_position,status,count,protocol_schema_id,raw_result,public_recording_id,public_position)
                        VALUES (?,?,?,?,?,?,?,?) ON CONFLICT (source_id,command_position) DO UPDATE
                        SET public_recording_id=EXCLUDED.public_recording_id,public_position=EXCLUDED.public_position
                        WHERE outgoing.raw_result=EXCLUDED.raw_result""",
@@ -146,6 +154,7 @@ class HistoryDatabase(
                                     .put("sourceId", source)
                                     .put("commandPosition", position)
                                     .put("timestamp", rows.getLong("cluster_timestamp").toString())
+                                    .put("captureKind", rows.getString("capture_kind"))
                                     .put("operation", rows.getString("operation") ?: "INVALID")
                                     .put("quantity", rows.getObject("quantity")?.toString())
                                     .put("status", rows.getString("status"))

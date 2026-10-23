@@ -4,6 +4,7 @@ import io.aeron.archive.Archive
 import io.aeron.archive.client.AeronArchive
 import io.aeron.cluster.ClusteredMediaDriver
 import io.aeron.cluster.ConsensusModule
+import io.aeron.cluster.RecordingLog
 import io.aeron.cluster.service.ClusteredServiceContainer
 import io.aeron.driver.MediaDriver
 import org.agrona.concurrent.NoOpLock
@@ -82,6 +83,7 @@ class SingleNodeClusterRuntime(
     private val consensusContext =
         ConsensusModule
             .Context()
+            .controlChannel("aeron:ipc?term-length=8m")
             .clusterMemberId(0)
             .clusterMembers(memberConfiguration)
             .clusterDir(clusterDirectory)
@@ -97,6 +99,7 @@ class SingleNodeClusterRuntime(
             .archiveContext(aeronArchiveContext.clone())
             .clusterDir(clusterDirectory)
             .clusteredService(service)
+            .controlChannel("aeron:ipc?term-length=8m")
             .serviceId(0)
 
     private val clusteredMediaDriver =
@@ -107,6 +110,21 @@ class SingleNodeClusterRuntime(
         )
     private val serviceContainer =
         try {
+            val cutoff = File(dataDir, "audit-start-position")
+            if (!cutoff.exists()) {
+                AeronArchive.connect(aeronArchiveContext.clone()).use { archive ->
+                    val end =
+                        RecordingLog(clusterDirectory, false).use { log ->
+                            log
+                                .entries()
+                                .filter { it.isValid && it.type == RecordingLog.ENTRY_TYPE_TERM }
+                                .map { archive.getMaxRecordedPosition(it.recordingId) }
+                                .maxOrNull() ?: 0L
+                        }
+                    cutoff.writeText(end.toString())
+                }
+            }
+            service.captureStartPosition = cutoff.readText().trim().toLong()
             ClusteredServiceContainer.launch(serviceContext)
         } catch (exception: Throwable) {
             clusteredMediaDriver.close()

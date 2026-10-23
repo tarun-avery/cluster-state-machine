@@ -27,6 +27,8 @@ import java.util.UUID
 open class CounterClusteredService : ClusteredService {
     var sourceId: UUID = UUID(0, 0)
         internal set
+    var captureStartPosition: Long = 0L
+        internal set
     private var cluster: Cluster? = null
     private var count = 0L
     private var idleStrategy: IdleStrategy? = null
@@ -94,6 +96,7 @@ open class CounterClusteredService : ClusteredService {
                 session?.id() ?: -1L,
                 ByteArray(length).also { buffer.getBytes(offset, it) },
                 ByteArray(responseLength).also { response.getBytes(0, it) },
+                if (cluster!!.logPosition() > captureStartPosition) 1 else 2,
             )
         val audit = AuditPairCodec.encode(pair)
         val auditBuffer = UnsafeBuffer(audit)

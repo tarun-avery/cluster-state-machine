@@ -23,3 +23,16 @@ Keep it with the cluster data. Resetting a cluster must create a new incarnation
 GET and legacy commands are included; malformed admitted commands preserve their
 raw bytes and INVALID_COMMAND result. Gateway validation failures are excluded.
 An outgoing record proves result production, not browser receipt.
+
+
+## Capture provenance and compatibility
+
+Audit envelope v2 adds capture kind: 0 UNCLASSIFIED (v1 compatibility), 1 CAPTURED,
+2 RECONSTRUCTED. The unchanged original request/result bytes remain inside it.
+Runtime setup persists `data/cluster/audit-start-position` before starting the
+service. Commands at/before that boundary are historical reconstructions;
+commands after it are captured during their original execution. The boundary
+and `source-id` are immutable companions to the log and must be backed up.
+Earlier v1 audit records remain UNCLASSIFIED: do not assert original capture.
+Flyway V2 adds provenance and separates wire schema IDs from wire version 0.
+V1 is preserved byte-for-byte after application.
