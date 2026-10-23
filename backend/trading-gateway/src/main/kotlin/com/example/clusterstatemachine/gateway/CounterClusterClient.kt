@@ -23,7 +23,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 @Component
 class CounterClusterClient(
     @Value("\${aeron.cluster.ingress-endpoint:127.0.0.1:9002}") private val ingressEndpoint: String,
-    @Value("\${aeron.client.data-dir:./gateway-data}") dataDir: String,
+    @Value("\${aeron.client.data-dir:\${app.data-root:./data}/gateway}") dataDir: String,
 ) : AutoCloseable {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val running = AtomicBoolean(false)

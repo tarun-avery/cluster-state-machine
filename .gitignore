@@ -26,3 +26,6 @@ frontend/pnpm-debug.log
 
 # macOS
 .DS_Store
+
+# Persistent local application storage
+/data/

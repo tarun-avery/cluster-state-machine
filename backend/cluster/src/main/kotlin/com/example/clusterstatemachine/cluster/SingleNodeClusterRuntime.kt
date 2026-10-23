@@ -11,6 +11,9 @@ import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.StandardOpenOption
+import java.util.UUID
 
 @Configuration
 class ClusterRuntimeConfiguration {
@@ -18,7 +21,7 @@ class ClusterRuntimeConfiguration {
     fun clusterRuntime(
         service: CounterClusteredService,
         @Value("\${aeron.cluster.base-port:9000}") basePort: Int,
-        @Value("\${aeron.cluster.data-dir:./cluster-data}") dataDir: String,
+        @Value("\${aeron.cluster.data-dir:\${app.data-root:./data}/cluster}") dataDir: String,
     ) = SingleNodeClusterRuntime(service, basePort, File(dataDir))
 }
 
@@ -27,6 +30,15 @@ class SingleNodeClusterRuntime(
     basePort: Int,
     dataDir: File,
 ) : AutoCloseable {
+    init {
+        dataDir.mkdirs()
+        val identity = File(dataDir, "source-id")
+        if (!identity.exists()) {
+            Files.writeString(identity.toPath(), UUID.randomUUID().toString(), StandardOpenOption.CREATE_NEW)
+        }
+        service.sourceId = UUID.fromString(identity.readText().trim())
+    }
+
     private val aeronDirectory = File(dataDir, "aeron").absolutePath
     private val archiveDirectory = File(dataDir, "archive")
     private val clusterDirectory = File(dataDir, "cluster")

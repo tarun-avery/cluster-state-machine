@@ -158,9 +158,11 @@ The default gateway endpoint is `ws://127.0.0.1:8081/ws`; cluster ingress is
 Set `VITE_GATEWAY_WS_URL` when starting or building the frontend to use a different
 gateway endpoint.
 
-Runtime data is stored under `cluster-data/` and `gateway-data/` at the repository
-root. Preserve these across restarts. Deleting `cluster-data/` while the apps are
-stopped resets the counter's recorded state.
+Runtime data defaults to project-local `data/cluster/` and `data/gateway/`.
+Set `APP_DATA_ROOT` (Spring property `app.data-root`) to change the root. Preserve
+the cluster tree, including its `source-id`, across restarts. Deleting it resets
+the count and creates a new history source identity. See
+[data migration](docs/data-storage.md) before running against older data.
 
 To remove generated backend and frontend output, stop the apps and run:
 
