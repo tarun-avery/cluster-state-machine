@@ -6,17 +6,21 @@ and choose **add**, **subtract**, **multiply**, or **divide** to update the coun
 all browsers connected to the gateway receive the result.
 
 ```text
-React → Vert.x WebSocket gateway → Aeron Cluster counter → gateway → browsers
+React → gateway → Aeron Cluster counter → gateway → browsers
+                    ↓ committed request/result pairs
+              public Aeron Archive → history service → PostgreSQL
 ```
 
 The backend modules live in `backend/`: `cluster` hosts the single-node cluster,
 `trading-gateway` connects to it, and `counter-protocol` generates shared messages
 from Taxi using the pinned Kotlin generator.
-The React app lives in `frontend/`.
+`archive-bridge` exports committed audit pairs and `history-service` replays them
+into PostgreSQL. The React app lives in `frontend/` and shows paired operation history.
 
-**Status:** the Taxi-generated arithmetic protocol is integrated and tested,
-including single-node recorded-log replay across restarts. Multi-node replication
-and leader failover have not been exercised.
+**Status:** Taxi arithmetic, public Archive recording, PostgreSQL history, Flyway
+migrations and the history UI are implemented. Single-node restart, real snapshot
+recovery and process interruption are covered by integration tests. Multi-node
+replication and leader failover have not been exercised.
 
 ## Requirements
 
@@ -24,6 +28,7 @@ and leader failover have not been exercised.
 - The pinned sibling Taxi generator checkout; see [Taxi integration setup](docs/taxi-integration.md).
 - Node.js 22.13 or newer; Node.js 24 is a suitable choice.
 - pnpm 11.25.0, matching `frontend/package.json`.
+- Python 3 and running Docker Desktop with Docker Compose for PostgreSQL.
 - The included Gradle wrapper; no separate Gradle installation is needed.
 
 If pnpm is missing, install it after Node.js:
@@ -45,8 +50,8 @@ If you already have the project, open its root directory instead of cloning it
 again. Follow [Taxi integration setup](docs/taxi-integration.md#setup) to prepare
 the sibling generator at the exact revision in `gradle.properties`. The build
 checks that revision and rejects uncommitted generator build-input changes;
-README and `docs/` edits are allowed. These integration commits must be available
-in both repositories; they have not been pushed automatically.
+README and `docs/` edits are allowed. The pinned integration commits must be available
+in both repositories.
 
 Install the frontend dependencies and verify the shared schema:
 
@@ -65,49 +70,31 @@ banner's blanket downgrade action; keep version changes in the Gradle build.
 A project can control dependencies, but cannot upgrade the IDE's bundled Kotlin
 analyser automatically.
 
-Start these processes in separate terminals, each from the repository root:
-
-**1. Cluster**
+Launch the complete implementation from the repository root:
 
 ```sh
-./gradlew :cluster:bootRun
+python3 scripts/run-local.py
 ```
 
-Wait for `Started ClusterApplicationKt`. Start the cluster before the gateway.
-The first run also generates and compiles the shared Taxi codecs.
+The launcher creates private local database settings if absent, health-checks
+PostgreSQL through Compose, builds and starts the cluster, public Archive bridge,
+history service, gateway and frontend in order. Open <http://127.0.0.1:5173>.
+The counter and paired incoming/outgoing history appear on the same page.
 
-**2. Gateway**
+From zero, Add 20 → Multiply 3 → Subtract 10 → Divide 4 produces
+`20 → 60 → 50 → 12`. Quantities and counts are signed 64-bit whole numbers;
+division truncates toward zero. Errors preserve the count. History is asynchronous
+and can appear after the live reply. Older reconstructed records are labelled.
 
-```sh
-./gradlew :trading-gateway:bootRun
-```
-
-Wait for `Connected to Aeron Cluster` and `WebSocket listening`.
-
-**3. Frontend**
-
-```sh
-pnpm --dir frontend dev
-```
-
-Open the address printed by Vite, usually <http://127.0.0.1:5173>. The page should
-show **Connected** and the current count. Enter `10` and click **+10**, then enter
-`3` and click **×3**, then enter `4` and click **/4**. From an initial count of
-zero this produces `10 → 30 → 7`. Open another browser tab to see both counts
-update together.
-
-Quantities and counts are signed 64-bit whole numbers. Division rounds toward
-zero; division by zero and overflow leave the count unchanged. Negative quantities
-are supported.
-
-All three commands keep running. Gradle showing `EXECUTING` is normal after
-startup. Stop each process with **Ctrl+C**, starting with the frontend, then the
-gateway, then the cluster.
+Ctrl+C stops the applications and preserves data. PostgreSQL stays running; use
+`docker compose stop` to stop it. See [launch, SQL, debugging and recovery](docs/history.md)
+for separate-terminal commands, code-file mapping, IntelliJ connections and diagrams.
 
 ## IntelliJ launch and debugging
 
 Shared configurations are in `.run/`. After reloading the Gradle project, choose
-**Run - Taxi x Cluster web app** to launch the cluster, gateway and frontend.
+**Run - complete counter with history** for ordered startup of the full implementation.
+**Run - Taxi x Cluster web app** retains the original three-process counter launch.
 Open <http://127.0.0.1:5173>. Use **Debug - serialization walkthrough** with the
 Debug button to step through the real generated codecs and state machine without
 live transport timeouts. See [IntelliJ instructions](docs/intellij.md) and the
@@ -125,10 +112,11 @@ pnpm --dir frontend build
 
 The backend build regenerates Taxi codecs as needed, checks the schema baseline,
 and runs unit tests and ktlint checks. To also exercise a real single-node cluster,
-WebSocket broadcasts, and legacy/generated log replay across restarts, run:
+WebSocket broadcasts, audit recording, snapshots and interruption recovery, run
+with PostgreSQL healthy:
 
 ```sh
-./gradlew :cluster:integrationTest
+./gradlew :cluster:integrationTest :history-service:integrationTest
 ```
 
 This test uses temporary data and available local ports, closes its cluster and
@@ -177,11 +165,13 @@ and caches are ignored by Git and reappear when needed.
 
 - This is a single-member cluster; the gateway is a client, not another member.
 - Single-node recorded-log replay across restarts is covered by the opt-in
-  integration test. Multi-node replication, leader failover, crash/power-loss
-  recovery, and a real snapshot/restart cycle have not been verified. Snapshot
-  callbacks are covered by unit tests.
+  integration test, including actual snapshots and process interruption around
+  audit publication. Multi-node replication, leader failover and power-loss
+  durability have not been verified.
 - Commands have no exactly-once retry guarantee. A lost response may follow a
   committed update; fetch current state before deciding whether to retry.
+- History needs retained internal/public recordings and available disk; no automatic
+  retention or exactly-once browser retry guarantee is provided.
 - Broadcasts cover browsers connected to the same gateway. Independent gateways
   do not currently receive each other's updates.
 

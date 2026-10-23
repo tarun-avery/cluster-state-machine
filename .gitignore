@@ -29,3 +29,6 @@ frontend/pnpm-debug.log
 
 # Persistent local application storage
 /data/
+
+# Local Python launcher cache
+__pycache__/

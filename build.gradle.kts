@@ -71,3 +71,12 @@ tasks.register<Exec>("frontendDev") {
     environment("PATH", (extraPath + System.getenv("PATH").orEmpty()).joinToString(File.pathSeparator))
     commandLine(pnpm, "--dir", "frontend", "dev", "--host", "127.0.0.1", "--port", "5173", "--strictPort")
 }
+
+// Ordered launcher checks Docker and starts all five application processes.
+tasks.register<Exec>("runLocal") {
+    group = "application"
+    description = "Launch the counter, public Archive and PostgreSQL history UI."
+    workingDir(rootProject.projectDir)
+    dependsOn(":cluster:bootJar", ":trading-gateway:bootJar", ":archive-bridge:installDist", ":history-service:installDist")
+    commandLine("python3", "scripts/run-local.py", "--skip-build")
+}
