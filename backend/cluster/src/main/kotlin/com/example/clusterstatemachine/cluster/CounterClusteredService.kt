@@ -1,5 +1,7 @@
 package com.example.clusterstatemachine.cluster
 
+import com.example.clusterstatemachine.protocol.AuditPair
+import com.example.clusterstatemachine.protocol.AuditPairCodec
 import com.example.clusterstatemachine.protocol.CounterCommand
 import com.example.clusterstatemachine.protocol.CounterMessage
 import com.example.clusterstatemachine.protocol.CounterStatus
@@ -16,11 +18,16 @@ import org.agrona.DirectBuffer
 import org.agrona.ExpandableArrayBuffer
 import org.agrona.MutableDirectBuffer
 import org.agrona.concurrent.IdleStrategy
+import org.agrona.concurrent.UnsafeBuffer
 import org.springframework.stereotype.Component
 import java.nio.ByteOrder
+import java.util.UUID
 
 @Component
-class CounterClusteredService : ClusteredService {
+open class CounterClusteredService : ClusteredService {
+    var sourceId: UUID = UUID(0, 0)
+        internal set
+    private var cluster: Cluster? = null
     private var count = 0L
     private var idleStrategy: IdleStrategy? = null
 
@@ -28,6 +35,7 @@ class CounterClusteredService : ClusteredService {
         cluster: Cluster,
         snapshotImage: Image?,
     ) {
+        this.cluster = cluster
         idleStrategy = cluster.idleStrategy()
         if (snapshotImage != null) {
             var snapshotLoaded = false
@@ -54,6 +62,12 @@ class CounterClusteredService : ClusteredService {
         length: Int,
         header: Header,
     ) {
+        // Only service-generated messages have no client session and this envelope.
+        // They are already ordered audit data, never a second arithmetic command.
+        if (session == null && AuditPairCodec.isAudit(buffer, offset, length)) {
+            AuditPairCodec.decode(buffer, offset, length)
+            return
+        }
         val request =
             try {
                 CounterWireCodec.decodeRequest(buffer, offset, length)
@@ -64,17 +78,30 @@ class CounterClusteredService : ClusteredService {
             }
         val status = if (request == null) CounterStatus.INVALID_COMMAND else apply(request.command, request.quantity ?: 1L)
 
-        if (session != null) {
-            val response = ExpandableArrayBuffer(CounterWireCodec.RESULT_LENGTH)
-            val responseLength =
-                CounterWireCodec.encodeResult(
-                    response,
-                    0,
-                    CounterMessage(status, count),
-                    CounterWireCodec.isLegacyRequest(length),
-                )
-            offerResponse(session, response, responseLength)
-        }
+        val response = ExpandableArrayBuffer(CounterWireCodec.RESULT_LENGTH)
+        val responseLength =
+            CounterWireCodec.encodeResult(
+                response,
+                0,
+                CounterMessage(status, count),
+                CounterWireCodec.isLegacyRequest(length),
+            )
+        val pair =
+            AuditPair(
+                sourceId,
+                cluster!!.logPosition(),
+                timestamp,
+                session?.id() ?: -1L,
+                ByteArray(length).also { buffer.getBytes(offset, it) },
+                ByteArray(responseLength).also { response.getBytes(0, it) },
+            )
+        val audit = AuditPairCodec.encode(pair)
+        val auditBuffer = UnsafeBuffer(audit)
+        val idle = idleStrategy!!
+        // Cluster service-message tracking recovers this offer during log replay.
+        // Never involve the gateway, external Archive or SQL in this callback.
+        while (cluster!!.offer(auditBuffer, 0, audit.size) < 0) idle.idle()
+        if (session != null) offerResponse(session, response, responseLength)
     }
 
     override fun onTakeSnapshot(snapshotPublication: ExclusivePublication) {

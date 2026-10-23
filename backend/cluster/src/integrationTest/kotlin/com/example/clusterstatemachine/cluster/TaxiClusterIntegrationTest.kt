@@ -2,6 +2,8 @@ package com.example.clusterstatemachine.cluster
 
 import com.example.clusterstatemachine.gateway.CounterClusterClient
 import com.example.clusterstatemachine.gateway.VertxWebSocketServer
+import com.example.clusterstatemachine.protocol.AuditPair
+import com.example.clusterstatemachine.protocol.AuditPairCodec
 import com.example.clusterstatemachine.protocol.CounterMessage
 import com.example.clusterstatemachine.protocol.CounterStatus
 import com.example.clusterstatemachine.protocol.CounterWireCodec
@@ -97,6 +99,54 @@ class TaxiClusterIntegrationTest {
                 assertEquals(CounterMessage(CounterStatus.OK, Long.MAX_VALUE), legacy.send(0))
                 assertEquals(CounterMessage(CounterStatus.OVERFLOW, Long.MAX_VALUE), legacy.send(1))
                 assertEquals(CounterMessage(CounterStatus.OK, 0), legacy.send(3, -Long.MAX_VALUE))
+            }
+        }
+    }
+
+    @Test
+    fun `actual request and reply are committed as service messages and replay without clients`() {
+        val basePort = availableClusterPorts()
+        val data = directory.resolve("audit-cluster").toFile()
+        val first = java.util.concurrent.CopyOnWriteArrayList<AuditPair>()
+
+        fun observed(pairs: MutableList<AuditPair>): CounterClusteredService =
+            object : CounterClusteredService() {
+                override fun onSessionMessage(
+                    session: io.aeron.cluster.service.ClientSession?,
+                    timestamp: Long,
+                    buffer: org.agrona.DirectBuffer,
+                    offset: Int,
+                    length: Int,
+                    header: io.aeron.logbuffer.Header,
+                ) {
+                    if (session == null && AuditPairCodec.isAudit(buffer, offset, length)) {
+                        pairs.add(AuditPairCodec.decode(buffer, offset, length))
+                    }
+                    super.onSessionMessage(session, timestamp, buffer, offset, length, header)
+                }
+            }
+        SingleNodeClusterRuntime(observed(first), basePort, data).use {
+            LegacyClient("127.0.0.1:${basePort + 2}", directory.resolve("audit-client")).use { client ->
+                assertEquals(CounterMessage(CounterStatus.OK, 20), client.send(3, 20))
+                assertEquals(CounterMessage(CounterStatus.DIVISION_BY_ZERO, 20), client.send(6, 0))
+            }
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            while (first.size < 2) {
+                check(System.nanoTime() < deadline)
+                Thread.sleep(1)
+            }
+        }
+        val replayed = java.util.concurrent.CopyOnWriteArrayList<AuditPair>()
+        SingleNodeClusterRuntime(observed(replayed), basePort, data).use {
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            while (replayed.size < 2) {
+                check(System.nanoTime() < deadline)
+                Thread.sleep(1)
+            }
+            assertEquals(first.map { it.commandPosition }, replayed.map { it.commandPosition })
+            first.zip(replayed).forEach { (a, b) ->
+                kotlin.test.assertContentEquals(a.request, b.request)
+                kotlin.test.assertContentEquals(a.result, b.result)
             }
         }
     }

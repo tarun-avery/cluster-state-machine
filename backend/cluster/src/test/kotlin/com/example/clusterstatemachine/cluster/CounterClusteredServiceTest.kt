@@ -1,5 +1,6 @@
 package com.example.clusterstatemachine.cluster
 
+import com.example.clusterstatemachine.protocol.AuditPairCodec
 import com.example.clusterstatemachine.protocol.CounterCommand
 import com.example.clusterstatemachine.protocol.CounterRequest
 import com.example.clusterstatemachine.protocol.CounterWireCodec
@@ -172,6 +173,32 @@ class CounterClusteredServiceTest {
         assertEquals(1.toByte(), responseStatus)
         command(1)
         assertEquals(2L, responseCount)
+    }
+
+    @Test
+    fun `audit captures actual reply retries pressure and cannot recursively apply`() {
+        var offers = 0
+        var audit = byteArrayOf()
+        `when`(cluster.offer(any(DirectBuffer::class.java), anyInt(), anyInt())).thenAnswer {
+            audit = ByteArray(it.getArgument(2))
+            it.getArgument<DirectBuffer>(0).getBytes(it.getArgument(1), audit)
+            if (++offers == 1) -2L else 1L
+        }
+        arithmetic(CounterCommand.ADD, 20)
+        assertEquals(2, offers)
+        val buffer = org.agrona.concurrent.UnsafeBuffer(audit)
+        val pair = AuditPairCodec.decode(buffer, 0, audit.size)
+        assertEquals(20L, CounterWireCodec.decodeResult(org.agrona.concurrent.UnsafeBuffer(pair.result), 0, pair.result.size).count)
+        service.onSessionMessage(null, 0, buffer, 0, audit.size, mock(Header::class.java))
+        assertEquals(2, offers)
+        command(0)
+        assertEquals(20L, responseCount)
+        arithmetic(CounterCommand.DIVIDE, 0, replay = true)
+        val rejected = AuditPairCodec.decode(org.agrona.concurrent.UnsafeBuffer(audit), 0, audit.size)
+        assertEquals(
+            3.toByte(),
+            CounterWireCodec.decodeResult(org.agrona.concurrent.UnsafeBuffer(rejected.result), 0, rejected.result.size).status.code,
+        )
     }
 
     private fun restore(count: Long) {
